@@ -8,7 +8,7 @@ from scipy.sparse import coo_matrix
 
 ''' Global Variables '''
 RANDOM_SEED = 420420
-DATA_PATH = getcwd() + '/data/DREAM_data'
+DATA_PATH = '../data/DREAM_data'
 TRAIN_PATH = DATA_PATH + '/training'
 EVAL_PATH = DATA_PATH + '/evaluation'
 FILENAME_LIST = ['condition_occurrence.csv', 'device_exposure.csv', 'goldstandard.csv', 
