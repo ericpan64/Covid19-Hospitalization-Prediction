@@ -6,6 +6,7 @@ from sklearn.impute import SimpleImputer, IterativeImputer
 from sklearn.preprocessing import MinMaxScaler
 from scipy.sparse import coo_matrix
 
+''' Global Variables '''
 RANDOM_SEED = 420420
 DATA_PATH = getcwd() + '/data/DREAM_data'
 TRAIN_PATH = DATA_PATH + '/training'
@@ -47,7 +48,88 @@ DATA_DICT_DF = pd.read_csv(DATA_PATH + '/data_dictionary.csv').loc[:, ['concept_
 CONCEPT_ID_TO_NAME_MAP = DATA_DICT_DF.loc[:, ['concept_id', 'concept_name']].set_index('concept_id').to_dict()['concept_name']
 CONCEPT_ID_TO_TABLE_MAP = DATA_DICT_DF.loc[:, ['concept_id', 'table']].set_index('concept_id').to_dict()['table']
 
+''' Public '''
+def get_unique_pid_list(path=TRAIN_PATH):
+    """
+    Gets unique list of patient IDs from person.csv
+    :returns: list
+    """
+    df = pd.read_csv(path + '/person.csv')
+    pid_list = df['person_id'].unique().tolist()
+    return pid_list
 
+def create_feature_df(pid_list, path=TRAIN_PATH, impute_strategy=0.0, use_multivariate_impute=False):
+    """
+    Generates the feature DataFrame of shape m x n, with m=len(pid_list) and n=# of features
+        NOTE: the value of each cell is the _count_ of a feature for a given patient.
+            Need to add additional OMOP-specific logic to parse-out values for concepts with values (e.g. heart rate)
+        If a patient is missing a feature, the given inpute_strategy will be used (univariate unless use_multivariate_impute=True)
+        By default this pulls all concepts sourced from csv columns specified in FILENAME_CLIN_CONCEPT_MAP
+    :param pid_list: list of person IDs
+    :param impute_strategy: str in {'most_frequent', 'mean', 'median'} OR any numeric (impute constant)
+    #deprecated (takes forever, also doesn't make sense) :param use_multivariate_impute: bool
+    #TODO implement this :param custom_concept_id_set: set (whitelist)
+    #TODO implement this :param exclude_concept_id_set: set (blacklist)
+    :return: DataFrame
+    """
+    # helper function
+    def normalize_array(x):
+        """ Given numpy array, return with the each column normalized """
+        # from: https://stackoverflow.com/a/29661707
+        x_normed = x / x.max(axis=0)
+        return x_normed
+
+    # handle input edge cases
+    if len(pid_list) == 0:
+        raise ValueError(f"Error: pid_list has length 0, got: {pid_list}")
+    # if type(custom_concept_id_set) == list:
+    #     custom_concept_id_set = set(custom_concept_id_set)
+    # if type(exclude_concept_id_set) == list:
+    #     exclude_concept_id_set = set(exclude_concept_id_set)
+
+    # get concept indices, person list, and concept_id->feature_id dict
+    concept_id_list = get_concept_list_ordered_by_sparsity(path=path)
+    pid_list = get_unique_pid_list(path=path)
+    concept_feature_id_map = generate_concept_feature_id_map(concept_id_list)
+
+    # get all unique person_id, concept_id pairs as DataFrame
+    df_all = get_concept_pid_pairs(path=path)
+
+    # for each person_id, get corresponding concept_id, count pairs
+    ## get counts
+    tot = len(df_all)
+    df_ones = pd.DataFrame(np.ones((tot, 1)))
+    df_all_w_ones = pd.concat([df_all, df_ones], axis=1)
+    df_all_summed = df_all_w_ones.groupby(['concept_id', 'person_id'])\
+        .agg(['sum'])\
+        .reset_index()\
+        .set_index('person_id')
+    ## remove column multiindex, rename column
+    df_all_summed.columns = df_all_summed.columns.droplevel([1])
+    df_all_summed = df_all_summed.rename(columns={df_all_summed.columns[1]: 'sum'})
+
+    # generate matrix (rows=person_id, cols=feature_id, values=sum)
+    get_feature_id = lambda cid: concept_feature_id_map[cid]
+    rows = df_all_summed.index.to_list()
+    cols = df_all_summed.loc[:, 'concept_id'].apply(get_feature_id).to_list()
+    vals = df_all_summed.loc[:, 'sum'].to_list()
+    m = len(pid_list)
+    n = len(concept_id_list)
+    df_sparse = coo_matrix((vals, (rows, cols)), shape=(m, n))
+    arr_dense = df_sparse.toarray()
+    
+    # impute data
+    # if use_multivariate_impute:
+    #     arr_imputed = impute_missing_data_multivariate(arr_dense, missing_val=0.0, strategy=impute_strategy)
+
+    arr_imputed = impute_missing_data_univariate(arr_dense, missing_val=0.0, strategy=impute_strategy)
+
+    # normalize data
+    arr_norm = normalize_array(arr_imputed)
+
+    return pd.DataFrame(arr_norm)
+
+''' "Private" '''
 def load_csvs_to_dataframe_dict(fn_list=FILENAME_LIST, path=TRAIN_PATH):
     """
     Loads csvs into single dictionary data structure
@@ -84,38 +166,6 @@ def impute_missing_data_univariate(X, missing_val=np.nan, strategy='most_frequen
     imp = SimpleImputer(missing_values=missing_val, strategy=strategy, fill_value=val)
     X_new = imp.fit_transform(X)
     return X_new
-
-def impute_missing_data_multivariate(X, missing_val=np.nan, strategy='most_frequent', max_iter=5):
-    """
-    Imputes missing values in X using multivariate approach (MICE)
-        NOTE: there are more possible parameters to tweak, though for simplicity focusing on a few to start
-    :param X: DataFrame
-    :param missing_val: int or np.nan
-    :param strategy: str in {'most_frequent', 'mean', 'median', 'constant'}
-    :param max_iter: int
-    :returns: X with missing_val imputed
-    """
-    # sklearn docs: https://scikit-learn.org/stable/modules/impute.html#impute
-    # MICE paper: https://www.jstatsoft.org/article/view/v045i03
-
-    # handle passed constant case
-    if type(strategy) in {int, float}:
-        strategy='constant'
-
-    # build imputer, then apply transform
-    imp = IterativeImputer(random_state=RANDOM_SEED, missing_values=missing_val, \
-        initial_strategy=strategy, max_iter=max_iter)
-    X_new = imp.fit_transform(X)
-    return X_new
-
-def get_unique_pid_list(path=TRAIN_PATH):
-    """
-    Gets unique list of patient IDs from person.csv
-    :returns: list
-    """
-    df = pd.read_csv(path + '/person.csv')
-    pid_list = df['person_id'].unique().tolist()
-    return pid_list
 
 def get_concept_pid_pairs(path=TRAIN_PATH):
     """
@@ -237,75 +287,26 @@ def generate_concept_feature_id_map(concept_id_list):
     # using: https://stackoverflow.com/a/36460020
     return {k: v for v, k in enumerate(concept_id_list)}
 
-
-# TODO create feature vectors. give option to impute
-def create_feature_df(pid_list, path=TRAIN_PATH, impute_strategy=0.0, use_multivariate_impute=False):
+''' Deprecated '''
+def impute_missing_data_multivariate(X, missing_val=np.nan, strategy='most_frequent', max_iter=5):
     """
-    Generates the feature DataFrame of shape m x n, with m=len(pid_list) and n=# of features
-        NOTE: the value of each cell is the _count_ of a feature for a given patient.
-            Need to add additional OMOP-specific logic to parse-out values for concepts with values (e.g. heart rate)
-        If a patient is missing a feature, the given inpute_strategy will be used (univariate unless use_multivariate_impute=True)
-        By default this pulls all concepts sourced from csv columns specified in FILENAME_CLIN_CONCEPT_MAP
-    :param pid_list: list of person IDs
-    :param impute_strategy: str in {'most_frequent', 'mean', 'median'} OR any numeric (impute constant)
-    #deprecated (takes forever, also doesn't make sense) :param use_multivariate_impute: bool
-    #TODO implement this :param custom_concept_id_set: set (whitelist)
-    #TODO implement this :param exclude_concept_id_set: set (blacklist)
-    :return: DataFrame
+    Imputes missing values in X using multivariate approach (MICE)
+        NOTE: there are more possible parameters to tweak, though for simplicity focusing on a few to start
+    :param X: DataFrame
+    :param missing_val: int or np.nan
+    :param strategy: str in {'most_frequent', 'mean', 'median', 'constant'}
+    :param max_iter: int
+    :returns: X with missing_val imputed
     """
-    # helper function
-    def normalize_array(x):
-        """ Given numpy array, return with the each column normalized """
-        # from: https://stackoverflow.com/a/29661707
-        x_normed = x / x.max(axis=0)
-        return x_normed
+    # sklearn docs: https://scikit-learn.org/stable/modules/impute.html#impute
+    # MICE paper: https://www.jstatsoft.org/article/view/v045i03
 
-    # handle input edge cases
-    if len(pid_list) == 0:
-        raise ValueError(f"Error: pid_list has length 0, got: {pid_list}")
-    # if type(custom_concept_id_set) == list:
-    #     custom_concept_id_set = set(custom_concept_id_set)
-    # if type(exclude_concept_id_set) == list:
-    #     exclude_concept_id_set = set(exclude_concept_id_set)
+    # handle passed constant case
+    if type(strategy) in {int, float}:
+        strategy='constant'
 
-    # get concept indices, person list, and concept_id->feature_id dict
-    concept_id_list = get_concept_list_ordered_by_sparsity(path=path)
-    pid_list = get_unique_pid_list(path=path)
-    concept_feature_id_map = generate_concept_feature_id_map(concept_id_list)
-
-    # get all unique person_id, concept_id pairs as DataFrame
-    df_all = get_concept_pid_pairs(path=path)
-
-    # for each person_id, get corresponding concept_id, count pairs
-    ## get counts
-    tot = len(df_all)
-    df_ones = pd.DataFrame(np.ones((tot, 1)))
-    df_all_w_ones = pd.concat([df_all, df_ones], axis=1)
-    df_all_summed = df_all_w_ones.groupby(['concept_id', 'person_id'])\
-        .agg(['sum'])\
-        .reset_index()\
-        .set_index('person_id')
-    ## remove column multiindex, rename column
-    df_all_summed.columns = df_all_summed.columns.droplevel([1])
-    df_all_summed = df_all_summed.rename(columns={df_all_summed.columns[1]: 'sum'})
-
-    # generate matrix (rows=person_id, cols=feature_id, values=sum)
-    get_feature_id = lambda cid: concept_feature_id_map[cid]
-    rows = df_all_summed.index.to_list()
-    cols = df_all_summed.loc[:, 'concept_id'].apply(get_feature_id).to_list()
-    vals = df_all_summed.loc[:, 'sum'].to_list()
-    m = len(pid_list)
-    n = len(concept_id_list)
-    df_sparse = coo_matrix((vals, (rows, cols)), shape=(m, n))
-    arr_dense = df_sparse.toarray()
-    
-    # impute data
-    # if use_multivariate_impute:
-    #     arr_imputed = impute_missing_data_multivariate(arr_dense, missing_val=0.0, strategy=impute_strategy)
-
-    arr_imputed = impute_missing_data_univariate(arr_dense, missing_val=0.0, strategy=impute_strategy)
-
-    # normalize data
-    arr_norm = normalize_array(arr_imputed)
-
-    return pd.DataFrame(arr_norm)
+    # build imputer, then apply transform
+    imp = IterativeImputer(random_state=RANDOM_SEED, missing_values=missing_val, \
+        initial_strategy=strategy, max_iter=max_iter)
+    X_new = imp.fit_transform(X)
+    return X_new
