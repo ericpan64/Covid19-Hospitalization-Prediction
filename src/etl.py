@@ -54,17 +54,14 @@ CONCEPT_ID_TO_TABLE_MAP = DATA_DICT_DF.loc[:, ['concept_id', 'table']].set_index
 #     get_concept_list_ordered_by_sparsity(path=path)
 #     concept_feature_id_map = generate_concept_feature_id_map(concept_id_list)
 
-def get_concept_list_ordered_by_sparsity(path=TRAIN_PATH, least_sparse_first=True):
+def get_unique_pid_list(path=TRAIN_PATH):
     """
-    Gets unique list of concept_ids from concept_summary.csv ordered by unique_pid_count, avg_per_pid
-    :returns: list (sorted)
+    Gets unique list of patient IDs from person.csv
+    :returns: list
     """
-    # get df (each row = concept)
-    df = generate_concept_summary(path, save_csv=False)
-    # sort dataframe
-    asc = not least_sparse_first
-    df_sorted = df.sort_values(['unique_pid_count', 'avg_per_pid'], axis=0, ascending=asc)
-    return df_sorted.loc[:, 'concept_id'].tolist()
+    df = pd.read_csv(path + '/person.csv')
+    pid_list = df['person_id'].unique().tolist()
+    return pid_list
 
 def get_concept_feature_id_map(specific_concept_id_list=None):
     """
@@ -137,16 +134,63 @@ def create_feature_df(concept_feature_id_map,  path=TRAIN_PATH, impute_strategy=
 
     return pd.DataFrame(arr_norm)
 
-''' "Private" '''
-def get_unique_pid_list(path=TRAIN_PATH):
+def generate_concept_summary(path=TRAIN_PATH, save_csv=True, specific_concept_id_list=None):
     """
-    Gets unique list of patient IDs from person.csv
-    :returns: list
+    Gets a summary of concept_id-person_id pairs as a DataFrame with the following columns:
+        concept_id
+        concept_name (if in data_dictionary.csv)
+        avg_per_pid (if a patient had the concept, how many instances were there)
+        from_table (if in data_dictionary.csv)
+        unique_pid_count (how many unique patients had the concept)
+    :param save_csv: If True, saves concept_summary.csv to DATA_PATH directory
+    :param specific_concept_id_list: list of specific concept ids to generate the summary from
+    :returns: DataFrame
     """
-    df = pd.read_csv(path + '/person.csv')
-    pid_list = df['person_id'].unique().tolist()
-    return pid_list
+    # get all concept_id-person_id pairs
+    df_all = get_concept_pid_pairs(path, specific_concept_id_list)
 
+    # Get count of unique person_id per concept_id
+    df_all_summary = df_all.drop_duplicates(keep='first')\
+        .groupby(['concept_id'])\
+        .agg({'person_id': 'count'})\
+        .rename(columns={'person_id': 'unique_pid_count'})\
+        .sort_values('unique_pid_count', ascending=False)
+    # # add concept_name, table labels from data_dict
+    # # # names
+    concept_ids = df_all_summary.reset_index().loc[:, 'concept_id']
+    cid_to_name = lambda cid: CONCEPT_ID_TO_NAME_MAP[cid] if cid in CONCEPT_ID_TO_NAME_MAP else pd.NA
+    concept_names = concept_ids.apply(cid_to_name).rename('concept_name')
+    concept_ids_with_names = pd.concat([concept_ids, concept_names], axis=1).set_index('concept_id')
+    df_all_summary.insert(0, "concept_name", concept_ids_with_names)
+    # # # table
+    cid_to_table = lambda cid: CONCEPT_ID_TO_TABLE_MAP[cid] if cid in CONCEPT_ID_TO_TABLE_MAP else pd.NA
+    concept_table = concept_ids.apply(cid_to_table).rename('from_table')
+    concept_ids_with_table = pd.concat([concept_ids, concept_table], axis=1).set_index('concept_id')
+    df_all_summary.insert(1, "from_table", concept_ids_with_table)
+
+    # Get count of average # of occurrences per person with the given concept_id
+    m = len(df_all)
+    df_ones = pd.DataFrame(np.ones((m, 1)))
+    df_all_w_ones = pd.concat([df_all, df_ones], axis=1)
+    df_all_avg = df_all_w_ones.groupby(['concept_id', 'person_id'])\
+        .agg(['sum'])\
+        .reset_index()\
+        .rename(columns={0: 'avg_per_pid'})\
+        .groupby(['concept_id'])\
+        .agg(['mean'])
+    # # clean-up formatting a bit
+    df_all_avg.columns.droplevel(level=[1,2]) # remove multiindex
+    df_all_avg = df_all_avg.loc[:, 'avg_per_pid'] # keep only avg_per_pid
+    # # add to df_all_summary
+    df_all_summary.insert(1, "avg_per_pid", df_all_avg)
+
+    # save to csv
+    if save_csv:
+        df_all_summary.to_csv(DATA_PATH + '/concept_summary.csv')
+
+    return df_all_summary.reset_index()
+
+''' "Private" '''
 def load_csvs_to_dataframe_dict(fn_list=FILENAME_LIST, path=TRAIN_PATH):
     """
     Loads csvs into single dictionary data structure
@@ -160,6 +204,18 @@ def load_csvs_to_dataframe_dict(fn_list=FILENAME_LIST, path=TRAIN_PATH):
         except:
             raise ValueError(f"Error: could not read file: {path+'/'+fn}")
     return fn_to_df_dict
+
+def get_concept_list_ordered_by_sparsity(path=TRAIN_PATH, least_sparse_first=True):
+    """
+    Gets unique list of concept_ids from concept_summary.csv ordered by unique_pid_count, avg_per_pid
+    :returns: list (sorted)
+    """
+    # get df (each row = concept)
+    df = generate_concept_summary(path, save_csv=False)
+    # sort dataframe
+    asc = not least_sparse_first
+    df_sorted = df.sort_values(['unique_pid_count', 'avg_per_pid'], axis=0, ascending=asc)
+    return df_sorted.loc[:, 'concept_id'].tolist()
 
 def impute_missing_data_univariate(X, missing_val=np.nan, strategy='most_frequent'):
     """
@@ -234,61 +290,6 @@ def get_concept_pid_pairs(path=TRAIN_PATH, specific_concept_id_list=None):
     ## remove NaN
     df_all = df_all.dropna().astype('int')
     return df_all
-
-def generate_concept_summary(path=TRAIN_PATH, save_csv=True):
-    """
-    Gets a summary of concept_id-person_id pairs as a DataFrame with the following columns:
-        concept_id
-        concept_name (if in data_dictionary.csv)
-        avg_per_pid (if a patient had the concept, how many instances were there)
-        from_table (if in data_dictionary.csv)
-        unique_pid_count (how many unique patients had the concept)
-    :creates_file: concept_summary.csv
-    :returns: DataFrame
-    """
-    # get all concept_id-person_id pairs
-    df_all = get_concept_pid_pairs(path)
-
-    # Get count of unique person_id per concept_id
-    df_all_summary = df_all.drop_duplicates(keep='first')\
-        .groupby(['concept_id'])\
-        .agg({'person_id': 'count'})\
-        .rename(columns={'person_id': 'unique_pid_count'})\
-        .sort_values('unique_pid_count', ascending=False)
-    # # add concept_name, table labels from data_dict
-    # # # names
-    concept_ids = df_all_summary.reset_index().loc[:, 'concept_id']
-    cid_to_name = lambda cid: CONCEPT_ID_TO_NAME_MAP[cid] if cid in CONCEPT_ID_TO_NAME_MAP else pd.NA
-    concept_names = concept_ids.apply(cid_to_name).rename('concept_name')
-    concept_ids_with_names = pd.concat([concept_ids, concept_names], axis=1).set_index('concept_id')
-    df_all_summary.insert(0, "concept_name", concept_ids_with_names)
-    # # # table
-    cid_to_table = lambda cid: CONCEPT_ID_TO_TABLE_MAP[cid] if cid in CONCEPT_ID_TO_TABLE_MAP else pd.NA
-    concept_table = concept_ids.apply(cid_to_table).rename('from_table')
-    concept_ids_with_table = pd.concat([concept_ids, concept_table], axis=1).set_index('concept_id')
-    df_all_summary.insert(1, "from_table", concept_ids_with_table)
-
-    # Get count of average # of occurrences per person with the given concept_id
-    m = len(df_all)
-    df_ones = pd.DataFrame(np.ones((m, 1)))
-    df_all_w_ones = pd.concat([df_all, df_ones], axis=1)
-    df_all_avg = df_all_w_ones.groupby(['concept_id', 'person_id'])\
-        .agg(['sum'])\
-        .reset_index()\
-        .rename(columns={0: 'avg_per_pid'})\
-        .groupby(['concept_id'])\
-        .agg(['mean'])
-    # # clean-up formatting a bit
-    df_all_avg.columns.droplevel(level=[1,2]) # remove multiindex
-    df_all_avg = df_all_avg.loc[:, 'avg_per_pid'] # keep only avg_per_pid
-    # # add to df_all_summary
-    df_all_summary.insert(1, "avg_per_pid", df_all_avg)
-
-    # save to csv
-    if save_csv:
-        df_all_summary.to_csv(DATA_PATH + '/concept_summary.csv')
-
-    return df_all_summary.reset_index()
 
 ''' Deprecated '''
 def impute_missing_data_multivariate(X, missing_val=np.nan, strategy='most_frequent', max_iter=5):
