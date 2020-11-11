@@ -1,5 +1,6 @@
 import unittest
 import etl
+import numpy as np
 
 class TestFeatureETL(unittest.TestCase):
 
@@ -24,6 +25,27 @@ class TestFeatureETL(unittest.TestCase):
         # Test fake concept_ids -- columns return as all 0's
         bogus_concept_id_list = [1111111111111111, 2222222222222222]
         run_test(bogus_concept_id_list)
+    
+    def test_concept_feature_map_generation(self):
+
+        # test aggregate both train+eval into feature map
+        concept_feature_id_map = etl.get_concept_feature_id_map()
+
+        # # test generating csv
+        # etl.generate_concept_summary()
+
+        # test filtering of features (just tests that it is different)
+        sorted_concept_feature_id_map, sorted_corr_series = etl.get_highest_correlation_concept_feature_id_map()
+        self.assertTrue(concept_feature_id_map != sorted_concept_feature_id_map)
+        print(sorted_corr_series)
+
+        # test picking top n features
+        top_10_concept_feature_id_map, top_10_corr_series = etl.get_highest_correlation_concept_feature_id_map(n=10)
+        self.assertTrue(len(top_10_concept_feature_id_map) == 10)
+        self.assertTrue(len(top_10_corr_series) == 10)
+        print(top_10_corr_series)
+
+
 
 if __name__ == '__main__':
     unittest.main()

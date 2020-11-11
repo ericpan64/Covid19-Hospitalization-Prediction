@@ -43,17 +43,16 @@ FILENAME_CLIN_CONCEPT_MAP = {
                         'visit_type_concept_id',
                         'visit_source_concept_id',
                         'admitting_source_concept_id',
-                        'discharge_to_concept_id']}
+                        'discharge_to_concept_id'],
+    'person.csv': ['gender_concept_id',
+                    'race_concept_id',
+                    'ethnicity_concept_id',
+                    'location_id']}
 DATA_DICT_DF = pd.read_csv(DATA_PATH + '/data_dictionary.csv').loc[:, ['concept_id', 'concept_name', 'table']]
 CONCEPT_ID_TO_NAME_MAP = DATA_DICT_DF.loc[:, ['concept_id', 'concept_name']].set_index('concept_id').to_dict()['concept_name']
 CONCEPT_ID_TO_TABLE_MAP = DATA_DICT_DF.loc[:, ['concept_id', 'table']].set_index('concept_id').to_dict()['table']
 
 ''' Public '''
-# def get_unique_feature_list():
-#     # TODO: implement this
-#     get_concept_list_ordered_by_sparsity(path=path)
-#     concept_feature_id_map = generate_concept_feature_id_map(concept_id_list)
-
 def get_unique_pid_list(path=TRAIN_PATH):
     """
     Gets unique list of patient IDs from person.csv
@@ -63,27 +62,95 @@ def get_unique_pid_list(path=TRAIN_PATH):
     pid_list = df['person_id'].unique().tolist()
     return pid_list
 
-def get_concept_feature_id_map(specific_concept_id_list=None):
+def get_highest_correlation_concept_feature_id_map(n=None, specific_path=None):
     """
-    Generates dict mapping concept_id to feature_id (0-indexed)
-    :return: dict (str->int)
+    Finds the highest-correlation features using the Pearson Coefficient.
+    Returns a dict mapping the n highest correlating concept_ids to feature_ids AND the corresponding correlation magnitudes
+        NOTE: the value of each feature is the _count_ of a feature for a given patient.
+    :param n: Upper-bound for the number of features to use
+    :param specific_path: Specific data path to inspect for features
+        Otherwise default is get correlation from TRAIN_PATH and EVAL_PATH, and then average the results
+    :return: dict (int->int), pd.Series
     """
-    # if no concept_id is provided, then parse through both TRAIN_PATH and EVAL_PATH datasets
-    if specific_concept_id_list == None:
-        train_set = set(get_concept_list_ordered_by_sparsity(path=TRAIN_PATH))
-        eval_set = set(get_concept_list_ordered_by_sparsity(path=EVAL_PATH))
-        concept_id_list = list(train_set | eval_set) # takes set union, then casts to list
+    # helper fn
+    def get_concepts_ordered_by_correlation(path, use_n=True):
+        """
+        Returns list of concept_ids and pd.Series of correlation magnitudes sorted by highest-correlation to goldstandard.csv
+        """
+
+        # get DataFrame based on concept_id_list from given path
+        concept_id_list = get_concept_list_ordered_by_sparsity(path)
+        concept_feature_id_map = get_concept_feature_id_map(concept_id_list)
+        df_features = create_feature_df(concept_feature_id_map, path=path)
+
+        # join goldstandard.csv as a column
+        try:
+            df_gold_standard = pd.read_csv(path+'/goldstandard.csv')
+        except:
+            raise FileNotFoundError(f"Error: file {path + '/goldstandard.csv'} does not exist.")
+        df_gold_standard = df_gold_standard.set_index('person_id')
+        df_merged = df_features.join(df_gold_standard)
+        
+        # get correlation matrix. Using: https://pandas.pydata.org/pandas-docs/stable/reference/api/pandas.DataFrame.corr.html
+        df_corr = df_merged.corr() # takes a while to run
+
+        # take last column ('status' from goldstandard.csv). Remove NaN and correlation w/ itself. Row indices (representing feature_id) are preserved!
+        corr_series = df_corr.iloc[:, -1].dropna().drop('status')
+
+        # take absolute value and sort. Get corresponding indices in-order
+        sorted_corr_series = abs(corr_series).sort_values(ascending=False)
+        sorted_feature_ids = list(sorted_corr_series.index)
+
+        # convert from feature_id back to concept_id, then return as list
+        feature_concept_id_map = {v:k for k, v in concept_feature_id_map.items()} # reverse the dict
+        sorted_concept_ids = [feature_concept_id_map[fid] for fid in sorted_feature_ids]
+        
+        # re-index sorted_corr_series so it corresponds to concept_id (instead of feature_id)
+        sorted_corr_series.index = pd.Index(sorted_concept_ids)
+
+        if use_n and n != None and n <= len(sorted_concept_ids):
+            return sorted_concept_ids, sorted_corr_series
+        else:
+            return sorted_concept_ids[:n], sorted_corr_series[:n]
+
+    # handle specific_path case
+    if specific_path != None:
+        concept_id_list, corr_series = get_concepts_ordered_by_correlation(specific_path)
+    # take average correlation between TRAIN_PATH and EVAL_PATH values of a feature
     else:
-        if type(specific_concept_id_list) != list:
-            raise TypeError(f"Error: concept_id_list needs to be a list, got: {type(concept_id_list)}")
-        concept_id_list = specific_concept_id_list
-    
-    return {k: v for v, k in enumerate(concept_id_list)} # from: https://stackoverflow.com/a/36460020
+        train_cid_list, train_corr_series = get_concepts_ordered_by_correlation(TRAIN_PATH, use_n=False)
+        eval_cid_list, eval_corr_series = get_concepts_ordered_by_correlation(EVAL_PATH, use_n=False)
+        unique_cid_set = set(train_cid_list) | set(eval_cid_list)
+        
+        # aggregate as list of (avg_correlation, concept_id) tuples
+        cid_tup_list = []
+        for cid in unique_cid_set:
+            # cases: only in eval set, only in train set, or in both sets
+            if cid not in train_corr_series.index:
+                cid_tup_list.append((eval_corr_series[cid], cid))
+            elif cid not in eval_corr_series.index:
+                cid_tup_list.append((train_corr_series[cid], cid))
+            else:
+                avg_corr = (eval_corr_series[cid] + train_corr_series[cid]) / 2
+                cid_tup_list.append((avg_corr, cid))
+        
+        # sort list and parse-out concept_ids
+        sorted_cid_tup_list = sorted(cid_tup_list, reverse=True)
+        concept_id_list = [cid for _, cid in sorted_cid_tup_list]
+        corr_series = pd.Series([corr for corr, _ in sorted_cid_tup_list])
+        if n != None:
+            concept_id_list = concept_id_list[:n]
+            corr_series = corr_series[:n]
+ 
+    # Generate feature_id map and return 
+    concept_feature_id_map = get_concept_feature_id_map(concept_id_list)
+    return concept_feature_id_map, corr_series
+
 
 def create_feature_df(concept_feature_id_map,  path=TRAIN_PATH, impute_strategy=0.0):
     """
     Generates the feature DataFrame of shape m x n, with m=len(pid_list) and n=# of features
-        NOTE: the value of each cell is the _count_ of a feature for a given patient.
+        NOTE: the value of each feature is the _count_ of a feature for a given patient.
             Need to add additional OMOP-specific logic to parse-out values for concepts with values (e.g. heart rate)
         If a patient is missing a feature, the given inpute_strategy will be used
         By default this pulls all concepts sourced from csv columns specified in FILENAME_CLIN_CONCEPT_MAP
@@ -100,21 +167,8 @@ def create_feature_df(concept_feature_id_map,  path=TRAIN_PATH, impute_strategy=
     concept_id_list = concept_feature_id_map.keys()
     pid_list = get_unique_pid_list(path=path)
 
-    # get unique person_id, concept_id pairs for concept_ids in concept_id_list
-    df_all = get_concept_pid_pairs(path=path, specific_concept_id_list=concept_id_list)
-
-    # for each person_id, get corresponding concept_id, count pairs
-    # # get counts
-    tot = len(df_all)
-    df_ones = pd.DataFrame(np.ones((tot, 1)))
-    df_all_w_ones = pd.concat([df_all, df_ones], axis=1)
-    df_all_summed = df_all_w_ones.groupby(['concept_id', 'person_id'])\
-        .agg(['sum'])\
-        .reset_index()\
-        .set_index('person_id')
-    # # remove column multiindex, rename column
-    df_all_summed.columns = df_all_summed.columns.droplevel([1])
-    df_all_summed = df_all_summed.rename(columns={df_all_summed.columns[1]: 'sum'})
+    # get concept_id counts as a DataFrame (column names: ['person_id', 'concept_id', 'sum'])
+    df_all_summed = get_pid_concept_counts(path, concept_id_list)
 
     # generate matrix (rows=person_id, cols=feature_id, values=sum)
     get_feature_id = lambda cid: concept_feature_id_map[cid]
@@ -132,7 +186,10 @@ def create_feature_df(concept_feature_id_map,  path=TRAIN_PATH, impute_strategy=
     # normalize data (by columns)
     arr_norm = normalize(arr_imputed, axis=0, norm='max') # from: https://stackoverflow.com/a/44257532
 
-    return pd.DataFrame(arr_norm)
+    # return as DataFrame
+    df_norm = pd.DataFrame(arr_norm)
+    df_norm.index.name = 'person_id'
+    return df_norm
 
 def generate_concept_summary(path=TRAIN_PATH, save_csv=True, specific_concept_id_list=None):
     """
@@ -191,6 +248,49 @@ def generate_concept_summary(path=TRAIN_PATH, save_csv=True, specific_concept_id
     return df_all_summary.reset_index()
 
 ''' "Private" '''
+def get_concept_feature_id_map(specific_concept_id_list=None):
+    """
+    Generates dict mapping concept_id to feature_id (0-indexed)
+    :return: dict (str->int)
+    """
+    # if no concept_id is provided, then parse through both TRAIN_PATH and EVAL_PATH datasets
+    if specific_concept_id_list == None:
+        # consider making this every folder in DATA_PATH?
+        train_set = set(get_concept_list_ordered_by_sparsity(path=TRAIN_PATH))
+        eval_set = set(get_concept_list_ordered_by_sparsity(path=EVAL_PATH))
+        concept_id_list = list(train_set | eval_set) # takes set union, then casts to list
+    else:
+        if type(specific_concept_id_list) != list:
+            raise TypeError(f"Error: concept_id_list needs to be a list, got: {type(concept_id_list)}")
+        concept_id_list = specific_concept_id_list
+    
+    return {k: v for v, k in enumerate(concept_id_list)} # from: https://stackoverflow.com/a/36460020
+
+def get_pid_concept_counts(path=TRAIN_PATH, specific_concept_id_list=None):
+    """
+    Aggregates all person_id, concept_id occurrences in the specified path and concept_id_list,
+        and then sums-up the counts.
+    :returns: DataFrame (column names: ['person_id', 'concept_id', 'sum'])
+    """
+    
+    # get unique person_id, concept_id pairs for concept_ids in concept_id_list
+    df_all = get_concept_pid_pairs(path, specific_concept_id_list)
+
+    # for each person_id, get corresponding concept_id, count pairs
+    # # get counts
+    tot = len(df_all)
+    df_ones = pd.DataFrame(np.ones((tot, 1)))
+    df_all_w_ones = pd.concat([df_all, df_ones], axis=1)
+    df_all_summed = df_all_w_ones.groupby(['concept_id', 'person_id'])\
+        .agg(['sum'])\
+        .reset_index()\
+        .set_index('person_id')
+    # # remove column multiindex, rename column
+    df_all_summed.columns = df_all_summed.columns.droplevel(level=[1])
+    df_all_summed = df_all_summed.rename(columns={df_all_summed.columns[1]: 'sum'})
+
+    return df_all_summed
+
 def load_csvs_to_dataframe_dict(fn_list=FILENAME_LIST, path=TRAIN_PATH):
     """
     Loads csvs into single dictionary data structure
