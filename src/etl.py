@@ -16,38 +16,42 @@ FILENAME_LIST = ['condition_occurrence.csv', 'device_exposure.csv', 'goldstandar
     'person.csv', 'procedure_occurrence.csv', 'visit_occurrence.csv']
 FILENAME_CLIN_CONCEPT_MAP = {
     'condition_occurrence.csv': ['condition_concept_id',
-                                'condition_type_concept_id',
+                                # 'condition_type_concept_id',
                                 'condition_source_concept_id',
-                                'condition_status_concept_id'],
+                                # 'condition_status_concept_id'
+                                ],
     'device_exposure.csv': ['device_concept_id',
-                            'device_type_concept_id',
+                            # 'device_type_concept_id',
                             'device_source_concept_id'],
     'measurement.csv': ['measurement_concept_id',
                         'measurement_type_concept_id',
-                        'operator_concept_id',
-                        'value_as_concept_id',
-                        'unit_concept_id',
+                        # 'operator_concept_id',
+                        # 'value_as_concept_id',
+                        # 'unit_concept_id',
                         'measurement_source_concept_id'],
     'observation.csv': ['observation_concept_id',
-                        'observation_type_concept_id',
-                        'value_as_concept_id',
+                        # 'observation_type_concept_id',
+                        # 'value_as_concept_id',
                         'qualifier_concept_id',
-                        'unit_concept_id',
+                        # 'unit_concept_id',
                         'observation_source_concept_id'],
-    'observation_period.csv': ['period_type_concept_id'],
+    # 'observation_period.csv': ['period_type_concept_id'],
     'procedure_occurrence.csv': ['procedure_concept_id',
-                                'procedure_type_concept_id',
+                                # 'procedure_type_concept_id',
                                 'modifier_concept_id',
                                 'procedure_source_concept_id'],
     'visit_occurrence.csv': ['visit_concept_id',
-                        'visit_type_concept_id',
+                        # 'visit_type_concept_id',
                         'visit_source_concept_id',
-                        'admitting_source_concept_id',
-                        'discharge_to_concept_id'],
-    'person.csv': ['gender_concept_id',
-                    'race_concept_id',
-                    'ethnicity_concept_id',
-                    'location_id']}
+                        # 'admitting_source_concept_id',
+                        # 'discharge_to_concept_id''
+                        ],
+    # 'person.csv': [
+    #                 'gender_concept_id',
+    #                 'race_concept_id',
+    #                 'ethnicity_concept_id',
+    #                 'location_id']
+}
 DATA_DICT_DF = pd.read_csv(DATA_PATH + '/data_dictionary.csv').loc[:, ['concept_id', 'concept_name', 'table']]
 CONCEPT_ID_TO_NAME_MAP = DATA_DICT_DF.loc[:, ['concept_id', 'concept_name']].set_index('concept_id').to_dict()['concept_name']
 CONCEPT_ID_TO_TABLE_MAP = DATA_DICT_DF.loc[:, ['concept_id', 'table']].set_index('concept_id').to_dict()['table']
@@ -66,8 +70,9 @@ def get_highest_correlation_concept_feature_id_map(n=None, specific_path=None):
     """
     Finds the highest-correlation features using the Pearson Coefficient.
     Returns a dict mapping the n highest correlating concept_ids to feature_ids AND the corresponding correlation magnitudes
+    If no n value is provided, then the entire original feature set is provided in sorted order (desc)
         NOTE: the value of each feature is the _count_ of a feature for a given patient.
-    :param n: Upper-bound for the number of features to use
+    :param n: Upper-bound for the number of features to include. This just slices the full df at the end
     :param specific_path: Specific data path to inspect for features
         Otherwise default is get correlation from TRAIN_PATH and EVAL_PATH, and then average the results
     :return: dict (int->int), pd.Series
