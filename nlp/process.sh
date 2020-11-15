@@ -4,7 +4,8 @@
 # get the abstract
 wget https://ai2-semanticscholar-cord-19.s3-us-west-2.amazonaws.com/2020-11-12/metadata.csv
 pip install csvtool
-cvstool -c 9 metadata.csv > abstracts.txt
+csvtool -c 9 metadata.csv > abstracts.txt
+csvtool -c 4 metadata.csv > titles.txt
 
 # get the packages
 pip install scispacy
