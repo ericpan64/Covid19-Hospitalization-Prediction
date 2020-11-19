@@ -10,7 +10,8 @@ disease_chemical_model = 'en_ner_bc5cdr_md'
 
 # example code https://github.com/allenai/scispacy
 nlp = spacy.load(disease_chemical_model)
-abbreviation_pipe = AbbreviationDetector(nlp)
+# abbreviation_pipe = AbbreviationDetector(nlp)
+# nlp.add_pipe(abbreviation_pipe)
 linker = EntityLinker(name="umls")
 nlp.add_pipe(linker)
 
