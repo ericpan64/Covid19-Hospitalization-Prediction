@@ -1,9 +1,9 @@
 import unittest
 import etl
 import numpy as np
+import pandas as pd
 
 class TestFeatureETL(unittest.TestCase):
-
     def test_feature_filtering(self):
         # helper fn
         def run_test(concept_id_list):
@@ -31,21 +31,23 @@ class TestFeatureETL(unittest.TestCase):
         # test aggregate both train+eval into feature map
         concept_feature_id_map = etl.get_concept_feature_id_map()
 
-        # # test generating csv
-        # etl.generate_concept_summary()
-
         # test filtering of features (just tests that it is different)
         sorted_concept_feature_id_map, sorted_corr_series = etl.get_highest_correlation_concept_feature_id_map()
         self.assertTrue(concept_feature_id_map != sorted_concept_feature_id_map)
-        print(sorted_corr_series)
+        # print(sorted_corr_series)
 
         # test picking top n features
         top_10_concept_feature_id_map, top_10_corr_series = etl.get_highest_correlation_concept_feature_id_map(n=10)
         self.assertTrue(len(top_10_concept_feature_id_map) == 10)
         self.assertTrue(len(top_10_corr_series) == 10)
-        print(top_10_corr_series)
+        # print(top_10_corr_series)
 
-
+        # Re-run concept_summary generation
+        etl.generate_concept_summary(save_csv=True)
+        # Save concept_feature_id_map as a csv
+        concepts = pd.Series(sorted_concept_feature_id_map.keys())
+        df_corr = pd.concat([concepts, sorted_corr_series], axis=1)
+        df_corr.to_csv(etl.DATA_PATH + '/concept_correlation.csv')
 
 if __name__ == '__main__':
     unittest.main()
