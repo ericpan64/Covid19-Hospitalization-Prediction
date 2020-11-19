@@ -66,28 +66,44 @@ def get_unique_pid_list(path=TRAIN_PATH):
     pid_list = df['person_id'].unique().tolist()
     return pid_list
 
-def get_concept_list_ordered_by_sparsity(path=TRAIN_PATH, most_dense_first=True):
+def get_concept_list_ordered_by_sparsity(path=TRAIN_PATH, most_dense_first=True, sparsity_cutoff=None):
     """
     Gets unique list of concept_ids from concept_summary.csv ordered by unique_pid_count, avg_per_pid
+    :most_dense_first: Sorts concept list by highest unique_pid_count.
+    :param sparsity_cutoff: Float representing lower-bound of concept sparsity
+        (e.g. sparsity_cutoff=0.5 means all concepts must be present in at least 50% of patient population)
     :returns: list (sorted)
     """
     # get df (each row = concept)
     df = generate_concept_summary(path, save_csv=False)
+
     # sort dataframe
     asc = not most_dense_first # most_dense_first=True means asc=False, and vice-versa
     df_sorted = df.sort_values(['unique_pid_count', 'avg_per_pid'], axis=0, ascending=asc)
+
+    # use sparsity cutoff if provided
+    if sparsity_cutoff != None:
+        cutoff = float(sparsity_cutoff) * len(get_unique_pid_list(path))
+        df_sorted = df_sorted[df_sorted.unique_pid_count >= cutoff]
+
     return df_sorted.loc[:, 'concept_id'].tolist()
 
-def get_concept_list_ordered_by_correlation(path, n=None, highest_correlation_first=True):
+def get_concept_list_and_corr_series_ordered_by_correlation(path, n=None, highest_correlation_first=True, specific_concept_id_list=None):
     """
-    Get list of concept_ids and pd.Series of correlation magnitudes sorted by highest-correlation to goldstandard.csv
-    :param n: Returns the first n concept_ids
+    Get list of concept_ids and pd.Series of correlation magnitudes sorted by highest-correlation to "goldstandard.csv"
+    :param path: Filepath with data. No default because this needs to point to the "goldstandard.csv" for correlation calculation
+    :param n: If specified, returns the first n concept_ids. The pd.Series is unaffected by this
+    :param highest_correlation_first: Sorts concept list by abs(correlation). The pd.Series returned is unsorted and unaffected by this
+    :param specific_concept_id_list: A specific list of concept_ids to use for correlation calculation
     :returns:
         1) list (sorted concept_ids by highest magnitude correlation (i.e. abs(correlation)))
         2) pd.Series (unsorted series of raw correlation values, with concept_ids as indices)
     """
     # get DataFrame based on concept_id_list from given path
-    concept_id_list = get_concept_list_ordered_by_sparsity(path)
+    if specific_concept_id_list == None:
+        concept_id_list = get_concept_list_ordered_by_sparsity(path)
+    else:
+        concept_id_list = specific_concept_id_list
     concept_feature_id_map = get_concept_feature_id_map(concept_id_list)
     df_features = create_feature_df(concept_feature_id_map, path=path)
 
@@ -100,10 +116,11 @@ def get_concept_list_ordered_by_correlation(path, n=None, highest_correlation_fi
     df_merged = df_features.join(df_gold_standard)
     
     # get correlation matrix. Using: https://pandas.pydata.org/pandas-docs/stable/reference/api/pandas.DataFrame.corr.html
-    df_corr = df_merged.corr() # takes ~1 minute to run on my machine
+    df_corr = df_merged.corr() # takes ~30s to run on my machine using all possible feature ids
 
     # take last column ('status' from goldstandard.csv). Remove NaN and correlation w/ itself. Row indices (representing feature_id) are preserved!
     corr_series = df_corr.iloc[:, -1].dropna().drop('status')
+    corr_series_idx_list = list(corr_series.index) # save this for re-indexing later
 
     # take absolute value and sort. Get corresponding indices in-order
     asc = not highest_correlation_first # highest_correlation_first=True means asc=False
@@ -113,14 +130,17 @@ def get_concept_list_ordered_by_correlation(path, n=None, highest_correlation_fi
     # convert from feature_id back to concept_id, then return as list
     feature_concept_id_map = {v:k for k, v in concept_feature_id_map.items()} # reverse the dict
     sorted_concept_ids = [feature_concept_id_map[fid] for fid in sorted_feature_ids]
-    
-    # re-index sorted_corr_series so it corresponds to concept_id (instead of feature_id)
-    sorted_corr_series.index = pd.Index(sorted_concept_ids)
+    corr_series_idx_list = [feature_concept_id_map[fid] for fid in corr_series_idx_list]
+
+    # re-index corr_series so it corresponds to concept_id (instead of feature_id). Assert that order is preserved from original
+    assert concept_id_list == list(concept_feature_id_map.keys())
+    assert list(concept_feature_id_map.values()) == list(df_features.columns)
+    corr_series.index = pd.Index(corr_series_idx_list) # matches sizes after NaN correlation removal
 
     if n != None and n <= len(sorted_concept_ids):
-        return sorted_concept_ids, sorted_corr_series
+        return sorted_concept_ids, corr_series
     else:
-        return sorted_concept_ids[:n], sorted_corr_series[:n]
+        return sorted_concept_ids[:n], corr_series
 
 def get_highest_correlation_concept_feature_id_map(n=None, specific_path=None):
     """
@@ -128,18 +148,18 @@ def get_highest_correlation_concept_feature_id_map(n=None, specific_path=None):
     Returns a dict mapping the n highest correlating concept_ids to feature_ids AND the corresponding correlation magnitudes
     If no n value is provided, then the entire original feature set is provided in sorted order (desc)
         NOTE: the value of each feature is the _count_ of a feature for a given patient.
-    :param n: Upper-bound for the number of features to include in the map. This just slices the full df at the end
+    :param n: Upper-bound for the number of features to include in the map. This just slices the result from "get_concept_list_and_corr_series_ordered_by_correlation"
     :param specific_path: Specific data path to inspect for features
         Otherwise default is get correlation from TRAIN_PATH and EVAL_PATH, and then average the results
     :return: dict (int->int), pd.Series
     """
     # handle specific_path case
     if specific_path != None:
-        concept_id_list, corr_series = get_concept_list_ordered_by_correlation(specific_path, n)
+        concept_id_list, corr_series = get_concept_list_and_corr_series_ordered_by_correlation(specific_path, n)
     # take average correlation between TRAIN_PATH and EVAL_PATH values of a feature
     else:
-        train_cid_list, train_corr_series = get_concept_list_ordered_by_correlation(TRAIN_PATH, n)
-        eval_cid_list, eval_corr_series = get_concept_list_ordered_by_correlation(EVAL_PATH, n)
+        train_cid_list, train_corr_series = get_concept_list_and_corr_series_ordered_by_correlation(TRAIN_PATH, n)
+        eval_cid_list, eval_corr_series = get_concept_list_and_corr_series_ordered_by_correlation(EVAL_PATH, n)
         unique_cid_set = set(train_cid_list) | set(eval_cid_list)
         
         # aggregate as list of (avg_correlation, concept_id) tuples
@@ -160,7 +180,7 @@ def get_highest_correlation_concept_feature_id_map(n=None, specific_path=None):
         corr_series = pd.Series([corr for corr, _ in sorted_cid_tup_list])
         if n != None:
             concept_id_list = concept_id_list[:n]
-            corr_series = corr_series[:n]
+            corr_series = corr_series
  
     # Generate feature_id map and return 
     concept_feature_id_map = get_concept_feature_id_map(concept_id_list)

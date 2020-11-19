@@ -27,27 +27,50 @@ class TestFeatureETL(unittest.TestCase):
         run_test(bogus_concept_id_list)
     
     def test_concept_feature_map_generation(self):
-
-        # test aggregate both train+eval into feature map
+        # Test aggregate both train+eval into feature map
         concept_feature_id_map = etl.get_concept_feature_id_map()
 
-        # test filtering of features (just tests that it is different)
+        # Test filtering of features (just tests that it is different)
         sorted_concept_feature_id_map, sorted_corr_series = etl.get_highest_correlation_concept_feature_id_map()
         self.assertTrue(concept_feature_id_map != sorted_concept_feature_id_map)
         # print(sorted_corr_series)
 
-        # test picking top n features
+        # Test picking top n features
         top_10_concept_feature_id_map, top_10_corr_series = etl.get_highest_correlation_concept_feature_id_map(n=10)
         self.assertTrue(len(top_10_concept_feature_id_map) == 10)
-        self.assertTrue(len(top_10_corr_series) == 10)
+        self.assertTrue(len(top_10_corr_series) == len(sorted_corr_series))
         # print(top_10_corr_series)
 
         # Re-run concept_summary generation
-        etl.generate_concept_summary(save_csv=True)
+        _ = etl.generate_concept_summary(save_csv=True)
+
         # Save concept_feature_id_map as a csv
         concepts = pd.Series(sorted_concept_feature_id_map.keys())
         df_corr = pd.concat([concepts, sorted_corr_series], axis=1)
         df_corr.to_csv(etl.DATA_PATH + '/concept_correlation.csv')
+
+    def test_concept_list_generation(self):
+        # Test sparsity cutoff
+        cid_list_by_sparsity = etl.get_concept_list_ordered_by_sparsity(etl.TRAIN_PATH)
+        cid_list_by_sparsity_cutoff = etl.get_concept_list_ordered_by_sparsity(sparsity_cutoff=0.5)
+
+        self.assertTrue(len(cid_list_by_sparsity) > len(cid_list_by_sparsity_cutoff))
+
+        # Test correlation list
+        cid_list_by_correlation_TRAIN, _ = etl.get_concept_list_and_corr_series_ordered_by_correlation(etl.TRAIN_PATH)
+        cid_list_by_correlation_EVAL, _ = etl.get_concept_list_and_corr_series_ordered_by_correlation(etl.EVAL_PATH)
+
+        self.assertTrue(set(cid_list_by_correlation_TRAIN) == set(cid_list_by_sparsity))
+        self.assertTrue(len(cid_list_by_correlation_TRAIN) != len(cid_list_by_correlation_EVAL)) # weak test using valid assumption
+
+        # Test passing specific concept_id list to get correlations (just checking compilation)
+        # TODO debug error here
+        dense_concept_id_list = [4033240, 44818518, 44818702]
+        sparse_concept_id_list = [3037684, 4057277, 2003223]
+        _, _ = etl.get_concept_list_and_corr_series_ordered_by_correlation(etl.TRAIN_PATH, specific_concept_id_list=dense_concept_id_list)
+        _, _ = etl.get_concept_list_and_corr_series_ordered_by_correlation(etl.TRAIN_PATH, specific_concept_id_list=sparse_concept_id_list)
+        _, _ = etl.get_concept_list_and_corr_series_ordered_by_correlation(etl.EVAL_PATH, specific_concept_id_list=dense_concept_id_list)
+        _, _ = etl.get_concept_list_and_corr_series_ordered_by_correlation(etl.EVAL_PATH, specific_concept_id_list=sparse_concept_id_list)
 
 if __name__ == '__main__':
     unittest.main()
