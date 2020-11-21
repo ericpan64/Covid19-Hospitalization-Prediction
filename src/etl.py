@@ -5,6 +5,7 @@ from sklearn.experimental import enable_iterative_imputer # https://stackoverflo
 from sklearn.impute import SimpleImputer, IterativeImputer
 from sklearn.preprocessing import normalize
 from scipy.sparse import coo_matrix
+from datetime import date, datetime
 
 ''' Global Variables '''
 RANDOM_SEED = 420420
@@ -88,13 +89,16 @@ def get_concept_list_ordered_by_sparsity(path=TRAIN_PATH, most_dense_first=True,
 
     return df_sorted.loc[:, 'concept_id'].tolist()
 
-def get_concept_list_and_corr_series_ordered_by_correlation(path, n=None, highest_correlation_first=True, specific_concept_id_list=None):
+
+def get_concept_list_and_corr_series_ordered_by_correlation(path, highest_correlation_first=True, n=None, specific_concept_id_list=None, count_impute_strategy=0.0, \
+                                                                use_parsed_values=True, parsed_aggregate_strategy='mean', parsed_impute_strategy='mean'):
     """
     Get list of concept_ids and pd.Series of correlation magnitudes sorted by highest-correlation to "goldstandard.csv"
     :param path: Filepath with data. No default because this needs to point to the "goldstandard.csv" for correlation calculation
     :param n: If specified, returns the first n concept_ids. The pd.Series is unaffected by this
     :param highest_correlation_first: Sorts concept list by abs(correlation). The pd.Series returned is unsorted and unaffected by this
     :param specific_concept_id_list: A specific list of concept_ids to use for correlation calculation
+    #TODO update documentation
     :returns:
         1) list (sorted concept_ids by highest magnitude correlation (i.e. abs(correlation)))
         2) pd.Series (unsorted series of raw correlation values, with concept_ids as indices)
@@ -104,8 +108,15 @@ def get_concept_list_and_corr_series_ordered_by_correlation(path, n=None, highes
         concept_id_list = get_concept_list_ordered_by_sparsity(path)
     else:
         concept_id_list = specific_concept_id_list
-    concept_feature_id_map = get_concept_feature_id_map(concept_id_list)
-    df_features = create_feature_df(concept_feature_id_map, path=path)
+
+    if use_parsed_values:
+        df_parsed = get_parsed_values_df(path, parsed_aggregate_strategy, parsed_impute_strategy)
+        concept_id_list += list(df_parsed.columns)
+        concept_feature_id_map = get_concept_feature_id_map(concept_id_list)
+        df_features = create_feature_df(concept_feature_id_map, path=path, count_impute_strategy=count_impute_strategy, use_parsed_values=True)
+    else:
+        concept_feature_id_map = get_concept_feature_id_map(concept_id_list)
+        df_features = create_feature_df(concept_feature_id_map, path=path, count_impute_strategy=count_impute_strategy, use_parsed_values=False)
 
     # join goldstandard.csv as a column
     try:
@@ -133,7 +144,8 @@ def get_concept_list_and_corr_series_ordered_by_correlation(path, n=None, highes
     corr_series_idx_list = [feature_concept_id_map[fid] for fid in corr_series_idx_list]
 
     # re-index corr_series so it corresponds to concept_id (instead of feature_id). Assert that order is preserved from original
-    assert concept_id_list == list(concept_feature_id_map.keys())
+    # TODO: re-evaluate this assert
+    # assert (dict.fromkeys(concept_id_list)).keys() == list(concept_feature_id_map.keys())
     assert list(concept_feature_id_map.values()) == list(df_features.columns)
     corr_series.index = pd.Index(corr_series_idx_list) # matches sizes after NaN correlation removal
 
@@ -142,30 +154,55 @@ def get_concept_list_and_corr_series_ordered_by_correlation(path, n=None, highes
     else:
         return sorted_concept_ids[:n], corr_series
 
-def get_highest_correlation_concept_feature_id_map(n=None, specific_path=None):
+def get_concept_feature_id_map(specific_concept_id_list=None):
+    """
+    Generates dict mapping concept_id to feature_id (0-indexed)
+    :return: dict (str->int)
+    """
+    # if no concept_id is provided, then parse through both TRAIN_PATH and EVAL_PATH datasets
+    if specific_concept_id_list == None:
+        # consider making this every folder in DATA_PATH?
+        train_set = set(get_concept_list_ordered_by_sparsity(path=TRAIN_PATH))
+        eval_set = set(get_concept_list_ordered_by_sparsity(path=EVAL_PATH))
+        concept_id_list = list(train_set | eval_set) # takes set union, then casts to list
+    else:
+        if type(specific_concept_id_list) != list:
+            raise TypeError(f"Error: concept_id_list needs to be a list, got: {type(concept_id_list)}")
+        concept_id_list = (dict.fromkeys(specific_concept_id_list)).keys() # from: https://stackoverflow.com/a/39835527
+    
+    return {k: v for v, k in enumerate(concept_id_list)} # from: https://stackoverflow.com/a/36460020
+
+def get_highest_corr_concept_feature_id_map_and_corr_series(specific_path=None, n=None, count_impute_strategy=0.0, \
+                                                        use_parsed_values=True, parsed_aggregate_strategy='mean', parsed_impute_strategy='mean'):
     """
     Finds the highest-correlation features using the Pearson Coefficient.
     Returns a dict mapping the n highest correlating concept_ids to feature_ids AND the corresponding correlation magnitudes
     If no n value is provided, then the entire original feature set is provided in sorted order (desc)
         NOTE: the value of each feature is the _count_ of a feature for a given patient.
-    :param n: Upper-bound for the number of features to include in the map. This just slices the result from "get_concept_list_and_corr_series_ordered_by_correlation"
     :param specific_path: Specific data path to inspect for features
         Otherwise default is get correlation from TRAIN_PATH and EVAL_PATH, and then average the results
-    :return: dict (int->int), pd.Series
+    :param n: Upper-bound for the number of features to include in the map. This just slices the result from "get_concept_list_and_corr_series_ordered_by_correlation"
+    :return: 
+        1) dict (int->int)
+        2) pd.Series
     """
     # handle specific_path case
     if specific_path != None:
-        concept_id_list, corr_series = get_concept_list_and_corr_series_ordered_by_correlation(specific_path, n)
+        concept_id_list, corr_series = get_concept_list_and_corr_series_ordered_by_correlation(path=specific_path, n=n, count_impute_strategy=count_impute_strategy,\
+            use_parsed_values=use_parsed_values, parsed_aggregate_strategy=parsed_aggregate_strategy, parsed_impute_strategy=parsed_impute_strategy)
     # take average correlation between TRAIN_PATH and EVAL_PATH values of a feature
     else:
-        train_cid_list, train_corr_series = get_concept_list_and_corr_series_ordered_by_correlation(TRAIN_PATH, n)
-        eval_cid_list, eval_corr_series = get_concept_list_and_corr_series_ordered_by_correlation(EVAL_PATH, n)
+        train_cid_list, train_corr_series = get_concept_list_and_corr_series_ordered_by_correlation(path=TRAIN_PATH, n=n, count_impute_strategy=count_impute_strategy,\
+            use_parsed_values=use_parsed_values, parsed_aggregate_strategy=parsed_aggregate_strategy, parsed_impute_strategy=parsed_impute_strategy)
+        eval_cid_list, eval_corr_series = get_concept_list_and_corr_series_ordered_by_correlation(path=EVAL_PATH, n=n, count_impute_strategy=count_impute_strategy,\
+            use_parsed_values=use_parsed_values, parsed_aggregate_strategy=parsed_aggregate_strategy, parsed_impute_strategy=parsed_impute_strategy)
         unique_cid_set = set(train_cid_list) | set(eval_cid_list)
         
         # aggregate as list of (avg_correlation, concept_id) tuples
         cid_tup_list = []
         for cid in unique_cid_set:
             # cases: only in eval set, only in train set, or in both sets
+            # TODO double-check logic after adding custom features
             if cid not in train_corr_series.index:
                 cid_tup_list.append((eval_corr_series[cid], cid))
             elif cid not in eval_corr_series.index:
@@ -180,13 +217,13 @@ def get_highest_correlation_concept_feature_id_map(n=None, specific_path=None):
         corr_series = pd.Series([corr for corr, _ in sorted_cid_tup_list])
         if n != None:
             concept_id_list = concept_id_list[:n]
-            corr_series = corr_series
  
     # Generate feature_id map and return 
     concept_feature_id_map = get_concept_feature_id_map(concept_id_list)
     return concept_feature_id_map, corr_series
 
-def create_feature_df(concept_feature_id_map,  path=TRAIN_PATH, count_impute_strategy=0.0):
+def create_feature_df(concept_feature_id_map,  path=TRAIN_PATH, count_impute_strategy=0.0,\
+                    use_parsed_values=True, parsed_aggregate_strategy='mean', parsed_impute_strategy='mean'):
     """
     Generates the feature DataFrame of shape m x n, with m=len(pid_list) and n=# of features
         NOTE: the value of each feature is the _count_ of a feature for a given patient.
@@ -208,6 +245,13 @@ def create_feature_df(concept_feature_id_map,  path=TRAIN_PATH, count_impute_str
     # get concept_id counts as a DataFrame (column names: ['person_id', 'concept_id', 'sum'])
     df_all_summed = get_pid_concept_counts(path, concept_id_list)
 
+    # include parsed values if applicable
+    if use_parsed_values:
+        # only keep columns that are present in concept_feature_id_map
+        df_parsed = get_parsed_values_df(path, parsed_aggregate_strategy, parsed_impute_strategy)
+        concept_overlap = set(concept_id_list).intersection(set(df_parsed.columns))
+        df_all_summed.join(df_parsed[concept_overlap])
+
     # generate matrix (rows=person_id, cols=feature_id, values=sum)
     get_feature_id = lambda cid: concept_feature_id_map[cid]
     rows = df_all_summed.index.to_list()
@@ -228,6 +272,163 @@ def create_feature_df(concept_feature_id_map,  path=TRAIN_PATH, count_impute_str
     df_norm = pd.DataFrame(arr_norm)
     df_norm.index.name = 'person_id'
     return df_norm
+
+def get_parsed_values_df(path=TRAIN_PATH, val_aggregate_strategy='mean',  val_impute_strategy='mean'):
+    """
+    Generates aggregated values from the following csvs/columns:
+        measurement.csv
+            value_as_number 
+            value_as_concept_id (count)
+            abnormal measurements (count based on range_low, range_high)
+        observation.csv
+            value_as_number
+            value_as_concept_id (count)
+        person.csv
+            age (calculated from birthday), NOTE that date is hard-coded to 2020-12-31 for model consistency
+    Impute strategies for value_as_number can be specified. 
+    For all others, a constant 0.0 value is used to impute (this can be modified using create_feature_df params)
+
+    :param val_aggregate_strategy: strategy for aggregating value_as_number columns
+    :param val_impute_strategy: strategy for aggregating value_as_number columns
+    :return: DataFrame
+        rows are person_id-indexed
+        columns are concept_id-indexed
+    """
+    # Save values in COOrdinate format and generate at end
+    # Ref: https://docs.scipy.org/doc/scipy/reference/generated/scipy.sparse.coo_matrix.html
+    rows = []
+    cols = []
+    vals = []
+    pid_list = get_unique_pid_list(path=path)
+    
+
+    # NOTE: making assumption that for identical concepts, they use identical units (this appears to be the case after inspection)
+    df_lookup = load_csvs_to_dataframe_dict(fn_list=['measurement.csv', 'observation.csv', 'person.csv'], path=path)
+
+    # "First-half" of df: 1), 2) and apply impute strategy
+    # 1) From measurement.csv and observation.csv, use helper fn to get value_as_number aggregated
+    def pad_zeros(x, final_len=10):
+        """ Used for value_as_number to generate new concept_ids (original concept_id with 0's padded)"""
+        while x < 10 ** (final_len-1):
+            x *= 10
+        return x
+
+    FLOOR = 1 # use floor to ensure recorded 0.0 values are preserved
+    def add_value_as_number_info(concept_id_name, table_df):
+        """ Used to add value_as_number information to rows, cols, vals lists """
+        nonlocal rows, cols, vals
+        df_vals = table_df[['person_id', concept_id_name, 'value_as_number']].dropna()
+        df_vals['value_as_number'] = df_vals['value_as_number'].apply(lambda v: v + FLOOR) # floor gets normalized at the end so no biggie
+        df_grouped = df_vals.groupby(['person_id', concept_id_name])\
+            .agg([val_aggregate_strategy]) # apply specified aggregate strategy
+        df_grouped.columns = list(map('_'.join, df_grouped.columns.values)) # https://stackoverflow.com/a/26325610
+        df_grouped = df_grouped.reset_index()
+        df_grouped.loc[:, concept_id_name] = df_grouped.loc[:, concept_id_name].apply(pad_zeros)
+        rows += df_grouped.loc[:, 'person_id'].tolist()
+        cols += df_grouped.loc[:, concept_id_name].tolist()
+        vals += df_grouped.loc[:, 'value_as_number_' + val_aggregate_strategy].tolist()
+
+    add_value_as_number_info('measurement_concept_id', df_lookup['measurement.csv'])
+
+    # 2) From observation.csv, get value_as_number column
+    add_value_as_number_info('observation_concept_id', df_lookup['observation.csv'])
+
+    # Apply impute strategy and generate first half of df
+    m = len(pid_list)
+    concept_feature_map = get_concept_feature_id_map(specific_concept_id_list=cols)
+    n = len(concept_feature_map.keys())
+    fids = [concept_feature_map[cid] for cid in cols]
+    df_sparse = coo_matrix((vals, (rows, fids)), shape=(m, n))
+    arr_dense = df_sparse.toarray()
+    arr_imputed = impute_missing_data_univariate(arr_dense, missing_val=0.0, strategy=val_impute_strategy)
+    arr_first_half = normalize(arr_imputed, axis=0, norm='max') # from: https://stackoverflow.com/a/44257532
+
+    # "Second-half" of df: 3), 4), 5), 6), no impute strategy
+    # 3) From measurement.csv, get counts of value_as_concept_id column
+    # Reset lists (getting second half of df)
+    rows = []
+    cols = []
+    vals = []    
+    def append_ints(first_col, second_col):
+        """ Used for value_as_concept_id to generate new concept_ids (original concept_id with value concept_id appended) """
+        assert len(first_col) == len(second_col)
+        first_col = [str(int(v)) for v in first_col]
+        second_col = [str(int(v)) for v in second_col]
+        res = [first_col[i] + second_col[i] for i in range(len(first_col))]
+        return [int(v) for v in res]
+
+    def add_value_as_concept_id_info(concept_id_name, table_df):
+        """ Used to add value_as_concept_id information to rows, cols, vals lists """
+        nonlocal rows, cols, vals
+        df_vals = table_df[['person_id', concept_id_name, 'value_as_concept_id']].dropna()
+        df_vals['new_concept_id'] = append_ints(df_vals[concept_id_name].tolist(), df_vals['value_as_concept_id'].tolist()) # add new appended concept_ids
+        df_vals = df_vals.reset_index(drop=True)
+        tot = len(df_vals)
+        df_ones = pd.DataFrame(np.ones((tot, 1))).rename(columns={0:'count'})
+        df_vals = pd.concat([df_vals.loc[:, ['person_id', 'new_concept_id']], df_ones], axis=1)
+        df_grouped = df_vals.groupby(['person_id', 'new_concept_id'])\
+            .agg(['sum'])
+        df_grouped.columns = list(map('_'.join, df_grouped.columns.values)) # https://stackoverflow.com/a/26325610
+        df_grouped = df_grouped.reset_index()
+        rows += df_grouped.loc[:, 'person_id'].tolist()
+        cols += df_grouped.loc[:, 'new_concept_id'].tolist()
+        vals += df_grouped.loc[:, 'count_sum'].tolist()
+
+    add_value_as_concept_id_info('measurement_concept_id', df_lookup['measurement.csv'])
+
+    # 4) From observation.csv, get counts of value_as_concept_id column
+    add_value_as_concept_id_info('observation_concept_id', df_lookup['observation.csv'])
+
+    # 5) From measurement.csv, get abnormal counts based on range_low, range_high
+    def check_if_abnormal(row):
+        """ Returns 1.0 if row has abnormal value, else 0.0 """
+        val, low, high = row.tolist()
+        abnormal = 0.0
+        nan_set = {'nan', '<NA>'}
+        if str(low) not in nan_set and val < low:
+            abnormal = 1.0
+        if str(high) not in nan_set and val > high:
+            abnormal = 1.0
+        return abnormal
+
+    df_abn = df_lookup['measurement.csv'][['person_id', 'measurement_concept_id', 'value_as_number', 'range_low', 'range_high']]
+    df_abn.insert(2, "abnormal_count", df_abn.iloc[:, 2:].apply(check_if_abnormal, axis=1), True)
+    df_abn = df_abn.iloc[:, :3]
+    df_abn_grouped = df_abn.groupby(['person_id', 'measurement_concept_id']).agg(['sum'])
+    df_abn_grouped.columns = list(map('_'.join, df_abn_grouped.columns.values)) # https://stackoverflow.com/a/26325610
+    df_abn_grouped = df_abn_grouped.reset_index()
+    rows += df_abn_grouped.loc[:, 'person_id'].tolist()
+    cols += df_abn_grouped.loc[:, 'measurement_concept_id'].tolist()
+    vals += df_abn_grouped.loc[:, 'abnormal_count_sum'].tolist()
+    
+    # 6) From person.csv, get age using birth_datetime column
+    # NOTE: For model consistency and scope of project, hard-coding age from 12-31-2020 instead of using current datetime.
+    str_format = '%Y-%m-%d'
+    ref_date = datetime.strptime('2020-12-31', str_format)
+    get_age_from_birthday_in_days = lambda d: float((ref_date - datetime.strptime(d, str_format)).days)
+        
+    df_ppl = df_lookup['person.csv'][['person_id', 'birth_datetime']]
+    df_age = df_ppl['birth_datetime'].apply(get_age_from_birthday_in_days)
+    pid_list = df_ppl.loc[:, 'person_id'].tolist()
+    rows += pid_list
+    cols += [1234567891011] * len(pid_list) # using random number as age concept_id
+    vals += df_age.tolist()
+
+    # Generate second half of df
+    second_concept_feature_map = get_concept_feature_id_map(specific_concept_id_list=cols)
+    n = len(second_concept_feature_map.keys())
+
+    second_fids = [second_concept_feature_map[cid] for cid in cols]
+    df_sparse = coo_matrix((vals, (rows, second_fids)), shape=(m, n))
+    arr_dense = df_sparse.toarray()
+    arr_second_half = normalize(arr_dense, axis=0, norm='max') # from: https://stackoverflow.com/a/44257532
+
+    # Re-index each df half, then merge
+    df_first_half = pd.DataFrame(arr_first_half, index=pid_list, columns=list(concept_feature_map.keys()), dtype=float)
+    df_second_half = pd.DataFrame(arr_second_half, index=pid_list, columns=list(second_concept_feature_map.keys()), dtype=float)
+    df_merged = df_first_half.join(df_second_half)
+    return df_merged
+
 
 def generate_concept_summary(path=TRAIN_PATH, save_csv=False, specific_concept_id_list=None):
     """
@@ -283,7 +484,7 @@ def generate_concept_summary(path=TRAIN_PATH, save_csv=False, specific_concept_i
 
     # save to csv
     if save_csv:
-        df_all_summary.to_csv(DATA_PATH + '/concept_summary.csv')
+        df_all_summary.to_csv(DATA_PATH + f'/concept_summary_{str(date.today())}.csv')
 
     return df_all_summary.reset_index()
 
@@ -301,24 +502,6 @@ def load_csvs_to_dataframe_dict(fn_list=FILENAME_LIST, path=TRAIN_PATH):
         except:
             raise ValueError(f"Error: could not read file: {path+'/'+fn}")
     return fn_to_df_dict
-
-def get_concept_feature_id_map(specific_concept_id_list=None):
-    """
-    Generates dict mapping concept_id to feature_id (0-indexed)
-    :return: dict (str->int)
-    """
-    # if no concept_id is provided, then parse through both TRAIN_PATH and EVAL_PATH datasets
-    if specific_concept_id_list == None:
-        # consider making this every folder in DATA_PATH?
-        train_set = set(get_concept_list_ordered_by_sparsity(path=TRAIN_PATH))
-        eval_set = set(get_concept_list_ordered_by_sparsity(path=EVAL_PATH))
-        concept_id_list = list(train_set | eval_set) # takes set union, then casts to list
-    else:
-        if type(specific_concept_id_list) != list:
-            raise TypeError(f"Error: concept_id_list needs to be a list, got: {type(concept_id_list)}")
-        concept_id_list = specific_concept_id_list
-    
-    return {k: v for v, k in enumerate(concept_id_list)} # from: https://stackoverflow.com/a/36460020
 
 def get_concept_pid_pairs(path=TRAIN_PATH, specific_concept_id_list=None):
     """
