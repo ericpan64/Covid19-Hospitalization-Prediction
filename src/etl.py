@@ -62,11 +62,6 @@ DEFAULT_AGG_IMP_CONFIG = {
 def get_unique_pid_list(path=TRAIN_PATH):
     """
     Gets unique list of patient IDs from person.csv
-
-    :params:
-        path: str
-    :returns: 
-        list (int)
     """
     df = pd.read_csv(path + '/person.csv')
     pid_list = df['person_id'].unique().tolist()
@@ -75,13 +70,6 @@ def get_unique_pid_list(path=TRAIN_PATH):
 def get_unique_cid_list(path=TRAIN_PATH, include_parsed_values=True):
     """
     Gets unique list of concept IDs from path
-
-    :params:
-        path: str
-        use_parsed_values: bool
-            True if you want customs features from get_parsed_values_df
-    :returns: 
-        list (int)
     """
     concept_id_list = get_concept_pid_pairs_df(path).loc[:, 'concept_id'].drop_duplicates().tolist()
     if include_parsed_values:
@@ -92,12 +80,6 @@ def get_unique_cid_list(path=TRAIN_PATH, include_parsed_values=True):
 def get_concept_feature_id_map(specific_path=None, specific_concept_id_list=None, include_parsed_values=True):
     """
     Generates dict mapping concept_id to feature_id (0-indexed)
-
-    :params:
-        specific_concept_id_list: list (int)
-            List of specific ids to use, otherwise all unique occurrences from TRAIN_PATH and EVAL_PATH
-    :returns: 
-        dict (str->int)
     """
     if specific_concept_id_list == None:
         concept_id_list = get_unique_cid_list_from_TRAIN_and_EVAL(include_parsed_values) if specific_path == None else get_unique_cid_list(specific_path, include_parsed_values)
@@ -110,25 +92,8 @@ def get_concept_feature_id_map(specific_path=None, specific_concept_id_list=None
 def get_concept_list_and_corr_series_ordered_by_correlation(path, specific_concept_id_list=None, use_parsed_values=True, agg_imp_config=DEFAULT_AGG_IMP_CONFIG):
     """
     Gets list of concept ids and pd.Series of correlation magnitudes sorted by highest-correlation to "goldstandard.csv"
-
-    NOTE: this can drop some concept_ids if there is no correlation value
-
-    :params:
-        path: str
-            Filepath with data and corresponding "goldstandard.csv" for correlation calculation
-        specific_concept_id_list: list (int)
-            A specific list of concept_ids to use for correlation calculation
-        count_impute_strategy: str OR float
-            str in {'most_frequent', 'mean', 'median'} OR any numeric (impute constant)
-        use_parsed_values: bool
-        parsed
-    :returns:
-        list
-            Sorted concept_ids by highest correlation magnitude (abs(correlation)))
-        pd.Series
-            Unsorted, indexed series of raw correlation values (index = concept_ids)
+    NOTE: this drops some concept_ids with N/A correlation value
     """
-    
     concept_id_list = get_unique_cid_list(path, use_parsed_values) if specific_concept_id_list == None else specific_concept_id_list
     concept_feature_id_map = get_concept_feature_id_map(path, concept_id_list)
     feature_df = create_feature_df(concept_feature_id_map, path=path, agg_imp_config=agg_imp_config, use_parsed_values=use_parsed_values)
@@ -146,20 +111,7 @@ def get_concept_list_and_corr_series_ordered_by_correlation(path, specific_conce
 
 def get_highest_corr_concept_feature_id_map_and_corr_series(specific_path=None, keep_first_n=None, use_parsed_values=True, agg_imp_config=DEFAULT_AGG_IMP_CONFIG):
     """
-    Finds the highest-correlation features using the Pearson Coefficient.
-    Returns a dict mapping the highest correlating concept_ids to feature_ids AND the corresponding correlation magnitudes
-
-    NOTE: this can drop some concept_ids if there is no correlation value
-    :params:
-        specific_path: str
-            If none is specified, default is get correlation from TRAIN_PATH and EVAL_PATH, and then average the results
-        count_impute_strategy: str OR float
-        use_parsed_values: bool
-        parsed_aggregate_strategy: str OR float
-        parsed_impute_strategy: str 
-    :returns (2 obj): 
-        dict (int->int)
-        pd.Series
+    Finds the highest-correlation features using the Pearson Coefficient and generates a concept_feature_id_map
     """
 
     if specific_path != None:
@@ -184,27 +136,8 @@ def get_highest_corr_concept_feature_id_map_and_corr_series(specific_path=None, 
 
 def get_parsed_values_df(path=TRAIN_PATH, agg_imp_config=DEFAULT_AGG_IMP_CONFIG):
     """
-    Generates aggregated values from the following csvs/columns:
-        measurement.csv
-            value_as_number 
-            value_as_concept_id (count)
-            abnormal measurements (count based on range_low, range_high)
-        observation.csv
-            value_as_number
-            value_as_concept_id (count)
-        person.csv
-            age (calculated from birthday), N
-    Impute strategies for value_as_number can be specified. 
-    For all others, a constant 0.0 value is used to impute (this can be modified using create_feature_df params)
-
-    :params:
-        val_aggregate_strategy: str
-            strategy for aggregating value_as_number columns (str in {'mean', 'median', 'sum'})
-        val_impute_strategy: str OR float
-            strategy for aggregating value_as_number columns (str in {'mean', 'median', 'most_frequent'} OR any numeric e.g. 0.0)
-    :returns: 
-        pd.DataFrame
-            Rows are indexed by person_id, Columns are indexed by concept_id
+    Parses-out discrete from measurement.csv, observation.csv, and person.csv
+    Resulting df is indexed by ~concept_id~
     """
     _, val_aggregate_strategy, val_impute_strategy = unpack_config_var(agg_imp_config)
     pid_list = get_unique_pid_list(path=path)
@@ -228,15 +161,9 @@ def get_parsed_values_df(path=TRAIN_PATH, agg_imp_config=DEFAULT_AGG_IMP_CONFIG)
 def create_feature_df(concept_feature_id_map,  path=TRAIN_PATH, use_parsed_values=True, agg_imp_config=DEFAULT_AGG_IMP_CONFIG):
     """
     Generates the feature DataFrame of shape m x n, with m=len(pid_list) and n=# of features
-        If a patient is missing a feature, the given inpute_strategy will be used
-        By default this pulls all concepts sourced from csv columns specified in FILENAME_CLIN_CONCEPT_MAP
-    :params:
-        concept_feature_id_map: dict (int->int)
-            Maps concept_id->feature_id
-        count_impute_strategy: str OR float
-            str in {'most_frequent', 'mean', 'median'} OR any numeric (impute constant)
-    :returns:
-        pd.DataFrame
+        If a patient is missing a feature, the impute settings from agg_imp_config will be used
+        NOTE: if a feature column is only 0.0 values, it will be removed in the final df
+    Resulting df is indexed by ~feature_id~ from concept_feature_id_map
     """
     count_impute_strategy, _, _ = unpack_config_var(agg_imp_config)
     if type(concept_feature_id_map) != dict:
@@ -256,47 +183,9 @@ def create_feature_df(concept_feature_id_map,  path=TRAIN_PATH, use_parsed_value
 
 
 ''' "Private" Functions '''
-def unpack_config_var(conf=DEFAULT_AGG_IMP_CONFIG):
-    assert len(conf) == 3
-    keys = tuple(conf.keys())
-    assert keys[0] == 'count_impute_strat'
-    assert keys[1] == 'parsed_agg_strat'
-    assert keys[2] == 'parsed_impute_strat'
-    return tuple(conf.values())
-
-def load_csvs_to_dataframe_dict(fn_list=FILENAME_LIST, path=TRAIN_PATH):
-    """
-    Loads csvs into single dictionary data structure
-
-    :params:
-        fn_list: list (str)
-            Filenames to use
-        path: str
-    :returns: 
-        dict (str -> pd.DataFrame)
-    """
-    fn_to_df_dict = {}
-    for fn in fn_list:
-        try:
-            df = pd.read_csv(path + '/' + fn)
-            fn_to_df_dict[fn] = df
-        except:
-            raise ValueError(f"Error: could not read file: {path+'/'+str(fn)}")
-    return fn_to_df_dict
-
 def get_concept_pid_pairs_df(path=TRAIN_PATH, specific_concept_id_list=None):
     """
-    Gets all (non-unique) concept_id-person_id pairs as a DataFrame with the following columns:
-        person_id
-        concept_id
-    To get unique, use pd.DataFrame.drop_duplicates after calling this function
-
-    :params:
-        path: str
-        specific_concept_id_list: list (int)
-            Specific concept_ids (int) to use when aggregating
-    :returns: 
-        pd.DataFrame
+    Gets all (person_id, concept_id) pairs as a DataFrame
     """
     fn_to_df_map = load_csvs_to_dataframe_dict(path=path)
     est_max_size = get_n_persons_times_n_concepts(fn_to_df_map)
@@ -317,29 +206,12 @@ def get_concept_pid_pairs_df(path=TRAIN_PATH, specific_concept_id_list=None):
     df_all = df_all.dropna().astype('int')
     return df_all
 
-def get_n_persons_times_n_concepts(fn_to_df_map):
-    person_count = len(fn_to_df_map['person.csv']['person_id'])
-    clin_concept_count = 0
-    for fn in FILENAME_CLIN_CONCEPT_MAP:
-        df = fn_to_df_map[fn]
-        for col in FILENAME_CLIN_CONCEPT_MAP[fn]:
-            clin_concept_count += len(df[col].unique())
-    max_size = person_count * clin_concept_count
-    return max_size
-
 def aggregate_pid_concept_counts_into_df(path=TRAIN_PATH, specific_concept_id_list=None):
     """
     Aggregates all person_id, concept_id occurrences in the specified path and concept_id_list,
         and then sums-up the counts.
-
-    :params:
-        path: str
-        specific_concept_id_list: list (int)
-            Specific concept_ids (int) to use when aggregating
-    :returns: 
-        df_all_summed: pd.DataFrame 
             Indexed by person_id
-            Columns: ['person_id', 'concept_id', 'sum']
+            Columns: ['concept_id', 'sum']
     """
     df_all = get_concept_pid_pairs_df(path, specific_concept_id_list)
     tot = len(df_all)
@@ -353,19 +225,35 @@ def aggregate_pid_concept_counts_into_df(path=TRAIN_PATH, specific_concept_id_li
     df_all_summed = df_all_summed.rename(columns={df_all_summed.columns[1]: 'sum'})
     return df_all_summed
 
+def unpack_config_var(conf=DEFAULT_AGG_IMP_CONFIG):
+    assert len(conf) == 3
+    keys = tuple(conf.keys())
+    assert keys[0] == 'count_impute_strat'
+    assert keys[1] == 'parsed_agg_strat'
+    assert keys[2] == 'parsed_impute_strat'
+    return tuple(conf.values())
+
+def load_csvs_to_dataframe_dict(fn_list=FILENAME_LIST, path=TRAIN_PATH):
+    fn_to_df_dict = {}
+    for fn in fn_list:
+        try:
+            df = pd.read_csv(path + '/' + fn)
+            fn_to_df_dict[fn] = df
+        except:
+            raise ValueError(f"Error: could not read file: {path+'/'+str(fn)}")
+    return fn_to_df_dict
+
+def get_n_persons_times_n_concepts(fn_to_df_map):
+    person_count = len(fn_to_df_map['person.csv']['person_id'])
+    clin_concept_count = 0
+    for fn in FILENAME_CLIN_CONCEPT_MAP:
+        df = fn_to_df_map[fn]
+        for col in FILENAME_CLIN_CONCEPT_MAP[fn]:
+            clin_concept_count += len(df[col].unique())
+    max_size = person_count * clin_concept_count
+    return max_size
+
 def impute_missing_data_univariate(X, missing_val=0.0, strategy='most_frequent'):
-    """
-    Imputes missing values in X using univariate approaches
-
-    Function used is from sklearn docs: https://scikit-learn.org/stable/modules/impute.html#impute
-
-    :params:
-        X: np.array
-        missing_val: np.nan OR float
-        strategy: str OR float
-            str in {'most_frequent', 'mean', 'median', 'constant'} OR any numeric (impute constant)
-    :returns: X with missing_val imputed
-    """
     val = None
     if type(strategy) != str:
         try:
@@ -454,7 +342,6 @@ def generate_first_half_of_parsed_values_df(rows, cols, vals, pid_list, val_impu
     first_half_df = pd.DataFrame(arr_first_half, index=pid_list, columns=list(concept_feature_map.keys()), dtype=float)
     return first_half_df
 
-
 def generate_second_half_of_parsed_values_df(rows, cols, vals, pid_list):
     second_concept_feature_map = get_concept_feature_id_map(specific_concept_id_list=cols)
     m = len(pid_list)
@@ -488,7 +375,6 @@ def append_abnormal_counts_to_rows_cols_vals(fn_to_df_dict, rows, cols, vals):
     rows += df_abn_grouped.loc[:, 'person_id'].tolist()
     cols += [pad_digits(cid, digit='1') for cid in df_abn_grouped.loc[:, 'measurement_concept_id'].tolist()]
     vals += df_abn_grouped.loc[:, 'abnormal_count_sum'].tolist()
-
 
 def pad_digits(cid, digit=0, final_len=10):
     d = str(digit)
@@ -546,20 +432,6 @@ def append_value_as_number_to_rows_cols_vals(concept_id_name, table_df, val_aggr
 def impute_missing_data_multivariate(X, missing_val=0.0, strategy='most_frequent', max_iter=5):
     """
     Imputes missing values in X using multivariate approach (MICE, paper here: https://www.jstatsoft.org/article/view/v045i03)
-
-    Function used is from sklearn docs: https://scikit-learn.org/stable/modules/impute.html#impute
-
-    :params:
-        X: np.array
-        missing_val: np.nan OR float
-            Value that is considered "missing"
-        strategy: str
-            String in {'most_frequent', 'mean', 'median', 'constant'}
-        max_iter: int
-            Number of iterations to run MICE algorithm
-    :returns: 
-        X_new: np.array
-            X with missing_val imputed
     """
     if type(strategy) in {int, float}:
         strategy='constant'
@@ -570,23 +442,8 @@ def impute_missing_data_multivariate(X, missing_val=0.0, strategy='most_frequent
 
 def generate_concept_summary(path=TRAIN_PATH, save_csv=False, specific_concept_id_list=None):
     """
-    Gets a summary of how frequently concept ids appear in the dataset as a DataFrame and/or csv. 
-
-    :params:
-        path: str
-        save_csv: bool
-            If True, saves concept_summary.csv to DATA_PATH directory
-        specific_concept_id_list: list (int)
-            List of specific concept ids to generate the summary from
-    :returns: 
-        pd.DataFrame
-            Rows: each unique concept_id
-            Columns:
-                concept_id
-                concept_name (if in data_dictionary.csv)
-                avg_per_pid (if a patient had the concept, how many instances were there)
-                from_table (if in data_dictionary.csv)
-                unique_pid_count (how many unique patients had the concept)
+    Gets a summary of how frequently concept ids appear in the dataset as a DataFrame and/or csv
+    NOTE: Unfortunately, this does not incorporate parsed values
     """
     df_all = get_concept_pid_pairs_df(path, specific_concept_id_list)
     df_all_summary = df_all.drop_duplicates(keep='first')\
@@ -596,15 +453,25 @@ def generate_concept_summary(path=TRAIN_PATH, save_csv=False, specific_concept_i
         .sort_values('unique_pid_count', ascending=False)
 
     add_concept_name_and_table_columns_to_df_all_summary(df_all_summary)
-
     df_avg_per_pid = get_avg_counts_per_pid_from_concept_pid_pairs_df(df_all)
-    
     df_all_summary.insert(1, "avg_per_pid", df_avg_per_pid)
-
     if save_csv:
         df_all_summary.to_csv(DATA_PATH + f'/concept_summary_{str(date.today())}.csv')
 
     return df_all_summary.reset_index()
+
+def get_concept_list_ordered_by_sparsity(path=TRAIN_PATH, desc=True, sparsity_cutoff=None):
+    """
+    Gets unique list of concept ids from concept_summary.csv ordered by unique pid count (population density), average occurrences per pid when present
+    NOTE: Unfortunately, this does not incorporate parsed values
+    """
+    df = generate_concept_summary(path, save_csv=False)
+    asc = not desc
+    df_sorted = df.sort_values(['unique_pid_count', 'avg_per_pid'], axis=0, ascending=asc)
+    if sparsity_cutoff != None:
+        cutoff = float(sparsity_cutoff) * len(get_unique_pid_list(path))
+        df_sorted = df_sorted[df_sorted.unique_pid_count >= cutoff]
+    return df_sorted.loc[:, 'concept_id'].tolist()
 
 def add_concept_name_and_table_columns_to_df_all_summary(df_all_summary):
     data_dict_df = pd.read_csv(DATA_PATH + '/data_dictionary.csv').loc[:, ['concept_id', 'concept_name', 'table']]
@@ -636,27 +503,3 @@ def get_avg_counts_per_pid_from_concept_pid_pairs_df(df_all):
     df_all_avg.columns = df_all_avg.columns.droplevel(level=[1,2]) # remove multiindex
     df_avg_per_pid = df_all_avg.loc[:, 'avg_per_pid']
     return df_avg_per_pid
-
-def get_concept_list_ordered_by_sparsity(path=TRAIN_PATH, desc=True, sparsity_cutoff=None):
-    """
-    Gets unique list of concept ids from concept_summary.csv ordered by unique pid count (population density), average occurrences per pid when present
-
-    :params:
-        path: str
-        desc: bool
-            True to sorts concept list by highest unique_pid_count first (descending)
-        sparsity_cutoff: float
-            Lower-bound cutoff for concept prevalence in patient population
-            (e.g. sparsity_cutoff=0.5 means return only concept_ids present in at least 50% of patient population)
-    :returns: 
-        list (int)
-            Concept ids with least sparse concepts first
-    """
-
-    df = generate_concept_summary(path, save_csv=False)
-    asc = not desc
-    df_sorted = df.sort_values(['unique_pid_count', 'avg_per_pid'], axis=0, ascending=asc)
-    if sparsity_cutoff != None:
-        cutoff = float(sparsity_cutoff) * len(get_unique_pid_list(path))
-        df_sorted = df_sorted[df_sorted.unique_pid_count >= cutoff]
-    return df_sorted.loc[:, 'concept_id'].tolist()

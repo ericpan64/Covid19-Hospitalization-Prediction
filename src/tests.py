@@ -22,11 +22,11 @@ class TestFeatureETL(unittest.TestCase):
     def test_feature_id_processing(self):
         def assert_that_feature_ids_are_preserved(concept_id_list, should_be_all_zeros=False):
             cf_map = etl.get_concept_feature_id_map(specific_concept_id_list=concept_id_list)
-            feature_ids_in_cf_map_matches_df_columns = lambda cf_map, df: [cf_map[cid] for cid in cf_map] == list(df.columns.values)
+            feature_ids_in_cf_map_is_superset_of_df_columns = lambda cf_map, df: set([cf_map[cid] for cid in cf_map]).issuperset(set(df.columns.values))
             df_is_all_zeros = lambda df: (df == 0.0).all().all()
             for path in PATHS:
                 df = etl.create_feature_df(cf_map, path)
-                self.assertTrue(feature_ids_in_cf_map_matches_df_columns(cf_map, df))
+                self.assertTrue(feature_ids_in_cf_map_is_superset_of_df_columns(cf_map, df))
 
                 if should_be_all_zeros:
                     self.assertTrue(df_is_all_zeros(df))
