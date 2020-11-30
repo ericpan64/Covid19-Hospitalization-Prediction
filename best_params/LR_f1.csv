@@ -1,5 +1,5 @@
 clf__C,0.001
-clf__class_weight,
+clf__class_weight,balanced
 clf__penalty,l2
 clf__solver,liblinear
-score,0.7875
+score,0.4544866642309097
