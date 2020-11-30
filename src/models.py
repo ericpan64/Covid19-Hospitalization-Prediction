@@ -1,3 +1,7 @@
+#Ignore Warnings
+import warnings
+warnings.filterwarnings(action='ignore')
+
 '''Import Scripts'''
 from plots import *
 from etl import *
@@ -11,9 +15,10 @@ import pandas as pd
 from sklearn.datasets import load_svmlight_file
 from sklearn.linear_model import LogisticRegression
 from sklearn.svm import SVC
-from sklearn.tree import DecisionTreeClassifier
-from sklearn.metrics import *
+from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import (GridSearchCV, train_test_split)
+from sklearn.decomposition import PCA
+from sklearn.metrics import *
 from sklearn.pipeline import Pipeline
 
 '''For saving models'''
@@ -21,6 +26,7 @@ import csv
 from joblib import dump
 
 import imblearn.under_sampling as under
+from imblearn.over_sampling import SMOTE
 
 RANDOM_SEED = 420420
 
@@ -38,6 +44,9 @@ def display_metrics(classifierName,Y_true,Y_pred):
     print("")
 
 def output_classification_report(Y_true, Y_pred, classifier):
+    '''
+    Function to save classification report to CSV
+    '''
 
     report = classification_report(Y_true, Y_pred, output_dict=True)
     df = pd.DataFrame(report).transpose()
@@ -45,6 +54,9 @@ def output_classification_report(Y_true, Y_pred, classifier):
     return
 
 def write_params_to_csv(param_dict,score,classifier='None'):
+    '''
+    Function to save model parameters to CSV
+    '''
     a_file = open('../best_params/{0}.csv'.format(classifier), "w")
     a_dict = param_dict
     writer = csv.writer(a_file)
@@ -54,77 +66,6 @@ def write_params_to_csv(param_dict,score,classifier='None'):
     writer.writerow(["score",score]) 
     a_file.close()
     return
-
-def logistic_regression_pred(X_train, Y_train, X_test, Y_test, classifier_title='None'): #, X_test):
-    """
-    input: X_train, Y_train and X_test
-    output: Y_pred
-    Implementing gridsearchcv pipeline for hyperparameter tuning. 
-    """
-    pipe_lr = Pipeline([('clf', LogisticRegression(random_state=RANDOM_SEED))])
-    c_range = [0.0001, 0.001, 0.01, 0.1, 1, 10, 100, 1000]
-
-    grid_params_lr = [{'clf__penalty': ['l1', 'l2'],
-                       'clf__C': c_range,
-                       'clf__solver': ['liblinear'],
-                       'clf__class_weight': (None, 'balanced')}]
-    
-    print("Logistic Regression")
-    print()
-
-    scores = ['roc_auc']#['recall','roc_auc', 'f1'] # Need to revisit recall
-    for score in scores:
-        print("# Tuning hyper-parameters for %s" % score)
-        print()
-        lr_grid = GridSearchCV(estimator=pipe_lr, 
-                      param_grid=grid_params_lr, 
-                      scoring=score, 
-                      verbose = 0, 
-                      n_jobs=-1,
-                      cv=10) 
-    
-        clf_lr = lr_grid.fit(X_train, Y_train)
-
-        print("Best parameters set found on development set:")
-        print()
-        print(clf_lr.best_params_)
-        print()
-        print("Best {0} score found on development set:".format(score))
-        print()
-        print(clf_lr.best_score_)
-        print()
-        print("Grid scores on development set:")
-        print()
-        means = clf_lr.cv_results_['mean_test_score']
-        stds = clf_lr.cv_results_['std_test_score']
-        for mean, std, params in zip(means, stds, clf_lr.cv_results_['params']):
-            print("%0.3f (+/-%0.03f) for %r"
-                    % (mean, std * 2, params))
-        print()
-        #Save Params to CSV
-        write_params_to_csv(clf_lr.best_params_,clf_lr.best_score_,classifier='Logistic_Regression_{0}'.format(score))
-        
-        #Save Model
-        dump(clf_lr, '../models/{0}_{1}.joblib'.format(classifier_title,score))
-
-        print("Detailed classification report:")
-        print()
-        print("The model is trained on the full development set.")
-        print("The scores are computed on the full evaluation set.")
-        print()
-        Y_true, Y_pred = Y_test, clf_lr.predict(X_test)
-
-        #Plot AURC Plot
-        plot_aurc_plot(Y_true, Y_pred, title='Logistic_Regression_ROC_Curve_{0}'.format(score))
-        output_classification_report(Y_true, Y_pred, 'Logistic_Regression_{0}'.format(score))
-        print(classification_report(Y_true, Y_pred))
-        
-        # display_metrics('Logistic_Regression_{0}'.format(score),Y_true,Y_pred)
-        print()
-    
-    print("Logistic Regression Training stage finished", flush = True)
-
-    return clf_lr
 
 def classification_metrics(Y_true, Y_pred):
     """
@@ -139,26 +80,191 @@ def classification_metrics(Y_true, Y_pred):
     f1score = f1_score(Y_true,Y_pred)
     return acc,auc_,precision,recall,f1score
 
-def main():
-    #Train
+def prepare_data(implement_undersampling=None, implement_oversampling=None):
+    #Set Paths
     DATA_PATH = "../data/DREAM_data"
     TRAIN_PATH = DATA_PATH + '/training'
 
     #Prep Data
-    pid_list_train = get_unique_pid_list(path=TRAIN_PATH)
-    X_set = create_feature_df(pid_list_train, path=TRAIN_PATH, impute_strategy=0.0, use_multivariate_impute=False)
+    print("Preparing Data")
+    concept_feature_id_map_train_set, corr_series = get_highest_correlation_concept_feature_id_map(n=None, specific_path=None)
+
+    #Create feature data frames
+    df_train_set = create_feature_df(concept_feature_id_map_train_set, path=TRAIN_PATH)
+
+    #Join gold standard to imputed and normalized data frames
     gs = pd.read_csv(TRAIN_PATH + "/goldstandard.csv")
-    Y_set = gs.drop(['person_id'], axis = 1)
-    X_set = np.array(X_set)
-    Y_set = np.array(Y_set).ravel()
+    df_gold_standard = gs.set_index('person_id')
+    df_merged_train_set = df_train_set.join(df_gold_standard)
 
-    #Undersampling
-    UnderSampling = under.ClusterCentroids(sampling_strategy={1:100, 0:200}, random_state=83, voting='hard')
-    x_resampled, y_resampled = UnderSampling.fit_resample(X_set, Y_set)
+    #Initalize Data Sets
+    X_set =  df_merged_train_set.loc[:, df_merged_train_set .columns != 'status']
+    Y_set = df_merged_train_set.status
 
-    X_train, X_test, Y_train, Y_test = train_test_split(x_resampled, y_resampled, test_size=0.8, random_state=RANDOM_SEED)
+    #Implement PCA (Identifying Components Responsible for 90% of data variance)
+    pca = PCA(n_components=.90) 
+    pca.fit(X_set)
+    X_set = pca.transform(X_set)
 
-    clf_lr = logistic_regression_pred(X_train,Y_train,X_test,Y_test,'Baseline_Logistic_Regression')
+    if implement_undersampling == True:
+        #Undersampling Data
+        UnderSampling = under.ClusterCentroids(sampling_strategy={1:100, 0:300}, random_state=RANDOM_SEED, voting='hard')
+        X_set, Y_set = UnderSampling.fit_resample(X_set, Y_set)
+    
+    elif implement_oversampling == True:
+        #SMOTE Oversampling
+        X_train, X_test, Y_train, Y_test = train_test_split(X_set, Y_set, test_size=0.2, random_state=RANDOM_SEED)
+
+        oversample = SMOTE()
+        X_train_up, Y_train_up = oversample.fit_resample(X_train, Y_train)
+
+        return X_train_up, X_test, Y_train_up, Y_test
+
+    #Split Data for Training/Eval 80/20 Split
+    X_train, X_test, Y_train, Y_test = train_test_split(X_set, Y_set, test_size=0.2, random_state=RANDOM_SEED)
+
+    return X_train, X_test, Y_train, Y_test
+
+def modeling (X_train, Y_train, X_test, Y_test, model_type ='None', classifier_title='None'):
+    '''
+    Choose model_type when calling function:
+    'LR' for Logistic Regression
+    'SVM' for support vector machine
+    'RF' for Random Forest
+
+    input: X_train, Y_train and X_test, Y_test
+    output: Y_pred
+    Implementing gridsearchcv pipeline for hyperparameter tuning. 
+    '''
+
+    if model_type == 'LR':
+        model_pipe = Pipeline([('clf', LogisticRegression(random_state=RANDOM_SEED))])
+        c_range = [0.0001, 0.001, 0.01, 0.1, 1, 10, 100, 1000]
+        model_grid_params = [{'clf__penalty': ['l1', 'l2'],
+                       'clf__C': c_range,
+                       'clf__solver': ['liblinear'],
+                       'clf__class_weight': (None, 'balanced')}]
+
+        model_scores = ['recall','roc_auc', 'f1']
+
+        print()
+        print("Logistic Regression")
+        print()
+
+    elif model_type == 'SVM':
+        model_pipe = Pipeline([('svm', SVC(random_state=RANDOM_SEED))])
+        c_range = [1, 10, 100, 1000]
+        model_grid_params = [{'svm__kernel': ['rbf'],
+                        'svm__gamma': [1e-3, 1e-4],
+                        'svm__C': c_range},
+                        {'svm__kernel': ['linear'], 
+                        'svm__C': [1, 10, 100, 1000]}]
+
+        model_scores = ['recall','roc_auc', 'f1']
+
+        print() 
+        print("Support Vector Machine")
+        print()
+
+    elif model_type == 'RF':
+        model_pipe = Pipeline([('rf', RandomForestClassifier(random_state=RANDOM_SEED))])
+        max_depths = np.linspace(1, 32, 32, endpoint=True)
+
+        model_grid_params = [{'rf__bootstrap': [True, False],
+                        'rf__max_depth': max_depths,
+                        'rf__max_features': ['auto', 'sqrt', 'log2'],
+                        'rf__min_samples_leaf': [3, 4, 5],
+                        'rf__min_samples_split': [8, 10, 12],
+                        'rf__n_estimators': [100, 200, 300, 500],
+                        'rf__criterion': ['gini', 'entropy']}]
+
+        model_scores = ['recall','roc_auc', 'f1']
+
+        print() 
+        print("Random Forest")
+        print()
+
+
+    for score in model_scores:
+        print("# Tuning hyper-parameters for %s" % score)
+        print()
+        model_grid = GridSearchCV(estimator=model_pipe, 
+                        param_grid=model_grid_params, 
+                        scoring=score, 
+                        verbose = 0, 
+                        n_jobs=-1,
+                        cv=10) 
+
+        model_clf = model_grid.fit(X_train, Y_train)
+
+        print("Best parameters set found on development set:")
+        print()
+        print(model_clf.best_params_)
+        print()
+        print("Best {0} score found on development set:".format(score))
+        print()
+        print(model_clf.best_score_)
+        print()
+        print("Grid scores on development set:")
+        print()
+        means = model_clf.cv_results_['mean_test_score']
+        stds = model_clf.cv_results_['std_test_score']
+        for mean, std, params in zip(means, stds,model_clf.cv_results_['params']):
+            print("%0.3f (+/-%0.03f) for %r"
+                    % (mean, std * 2, params))
+        print()
+        #Save Params to CSV
+        write_params_to_csv(model_clf.best_params_,model_clf.best_score_,classifier='{0}_{1}'.format(model_type, score))
+        
+        #Save Model
+        dump(model_clf, '../models/{0}_{1}.joblib'.format(classifier_title,score))
+
+        print("Detailed classification report:")
+        print()
+        print("The model is trained on the full development set.")
+        print("The scores are computed on the full evaluation set.")
+        print()
+        Y_true, Y_pred = Y_test, model_clf.predict(X_test)
+
+        #Plot AURC Plot
+        plot_aurc_plot(Y_true, Y_pred, title='{0}_ROC_Curve_{1}'.format(model_type, score))
+        output_classification_report(Y_true, Y_pred, 'Logistic_Regression_{0}'.format(model_type, score))
+        print(classification_report(Y_true, Y_pred))
+        print(len(Y_true))
+        print(len(Y_test))
+        print(confusion_matrix(Y_true, Y_pred))
+
+        print()
+
+    print("{0} Training stage finished".format(model_type), flush = True)
+
+    return model_clf
+
+
+def main():
+    '''
+    Implement model training on training dataset
+
+    Remember to Include Title Details Per Data Preperation
+    -Example: Basline Modeling
+    clf_lr = logistic_regression_pred(X_train, Y_train, X_test, Y_test, 'Baseline_Logistic_Regression')
+
+    -Example: Oversampling
+    clf_lr = logistic_regression_pred(X_train, Y_train, X_test, Y_test, 'Oversampled_Logistic_Regression')
+
+    '''
+
+    X_train, X_test, Y_train, Y_test = prepare_data(implement_undersampling=True, implement_oversampling=False)
+
+
+    #Implement Logistic Regression
+    clf_lr = modeling(X_train, Y_train, X_test, Y_test, model_type ='LR', classifier_title ='Baseline_Logistic_Regression')
+
+    #Implement Support Vector Machine
+    #clf_svm = modeling(X_train, Y_train, X_test, Y_test, model_type ='SVM', classifier_title ='Baseline_Support_Vector_Machine')
+
+    #Implement Random Forest
+    #clf_rf = modeling(X_train, Y_train, X_test, Y_test, model_type ='RF', classifier_title ='Baseline_Random_Forest')
 
 if __name__ == "__main__":
     main()

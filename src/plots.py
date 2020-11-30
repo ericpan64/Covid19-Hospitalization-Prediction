@@ -25,35 +25,35 @@ def plot_aurc_plot(Y_true, Y_pred, title="ROC Curve"):
 
     ax.yaxis.set_label_coords(-0.1,0.5)
     ax.xaxis.set_label_coords(0.5,-0.1)
-    print(f"\033[1m\033[94mROC AUC score = ", roc_auc_score(Y_true, Y_pred))
+    print("ROC AUC score = ", roc_auc_score(Y_true, Y_pred))
 
     plt.savefig('../graphs/{0}_ROC_Curve.png'.format(title), dpi=300)
 
-# def plot_confusion_matrix(results, class_names):
-# 	def plot_matrix(cm, classes, title ='Confusion Matrix', cmap=plt.cm.Blues):
+def plot_confusion_matrix(results, class_names):
+	def plot_matrix(cm, classes, title ='Confusion Matrix', cmap=plt.cm.Blues):
 
-# 		cm = cm.astype('float')/cm.sum(axis = 1)[:, np.newaxis]
-# 		plt.imshow(cm, interpolation='nearest', cmap = cmap)
-# 		plt.title(title)
-# 		plt.colorbar()
-# 		tick_marks = np.arange(len(classes))
-# 		plt.xticks(tick_marks, classes, rotation = 45)
-# 		plt.yticks(tick_marks, classes)
+		cm = cm.astype('float')/cm.sum(axis = 1)[:, np.newaxis]
+		plt.imshow(cm, interpolation='nearest', cmap = cmap)
+		plt.title(title)
+		plt.colorbar()
+		tick_marks = np.arange(len(classes))
+		plt.xticks(tick_marks, classes, rotation = 45)
+		plt.yticks(tick_marks, classes)
 
-# 		formatType = '.2f'
-# 		maxLimit = cm.max() / 2.
-# 		for x, y in tools.product(range(cm.shape[0]), range(cm.shape[1])):
-# 			plt.text(y, x, format(cm[x, y], formatType), horizontalalignment = "center", color = "white" if cm[x, y] > maxLimit else "black")
-# 		plt.ylabel('True Label')
-# 		plt.xlabel('Predicted Label')
-# 		plt.tight_layout()
+		formatType = '.2f'
+		maxLimit = cm.max() / 2.
+		for x, y in tools.product(range(cm.shape[0]), range(cm.shape[1])):
+			plt.text(y, x, format(cm[x, y], formatType), horizontalalignment = "center", color = "white" if cm[x, y] > maxLimit else "black")
+		plt.ylabel('True Label')
+		plt.xlabel('Predicted Label')
+		plt.tight_layout()
 		
-# 	yLabelTrue, yLabelPred = zip(* results)
+	yLabelTrue, yLabelPred = zip(* results)
 
-# 	cnf_matrix_internal = confusion_matrix(yLabelTrue, yLabelPred)
-# 	np.set_printoptions(precision = 2)
+	cnf_matrix_internal = confusion_matrix(yLabelTrue, yLabelPred)
+	np.set_printoptions(precision = 2)
 
-# 	#Plot Confusion Matrix
-# 	plt.figure()
-# 	plot_matrix(cnf_matrix_internal, classes = class_names, title ='Normalized Confusion Matrix')
-# 	plt.savefig('../graphs/{0}_Confusion_Matrix.png'.format(title), dpi=300)
+	#Plot Confusion Matrix
+	plt.figure()
+	plot_matrix(cnf_matrix_internal, classes = class_names, title ='Normalized Confusion Matrix')
+	plt.savefig('../graphs/{0}_Confusion_Matrix.png'.format(title), dpi=300)
