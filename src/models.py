@@ -87,7 +87,7 @@ def prepare_data(implement_undersampling=None, implement_oversampling=None):
 
     #Prep Data
     print("Preparing Data")
-    concept_feature_id_map_train_set, corr_series = get_highest_correlation_concept_feature_id_map(n=None, specific_path=None)
+    concept_feature_id_map_train_set, corr_series = get_highest_corr_concept_feature_id_map_and_corr_series(specific_path=None, keep_first_n=None, use_parsed_values=True, agg_imp_config=DEFAULT_AGG_IMP_CONFIG)
 
     #Create feature data frames
     df_train_set = create_feature_df(concept_feature_id_map_train_set, path=TRAIN_PATH)
