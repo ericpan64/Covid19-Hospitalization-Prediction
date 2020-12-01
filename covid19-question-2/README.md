@@ -10,42 +10,42 @@ This example model takes three basic demographics features include age, gender a
 
 During the inference stage, we create a feature matrix using the same set of demographics features. Then we load the trained model and apply the model on the feature matrix to generate a prediction file as `/output/predictions.csv`
 
-
-
 ## Dockerize the model
 
-1. Start by cloning this repository.
+1. Move to this example folder
 
-2. Move to this example folder
-
-3. Build the Docker image that will contain the move with the following command:
+2. Build the Docker image that will contain the move with the following command:
 
     ```bash
     docker build -t awesome-covid19-q2-model:v1 .
     ```
+    **You can give whatever name you want the image to be. It's for you to identify it locally** 
+
+    This builds the image based on the Dockerfile, which contains comand copying your train.sh and infer.sh into its image, as well as installing some necessary Python packages. 
+    You can think of this as setting up the environment.
 
 ## Run the model locally on synthetic EHR data
 
 1. Go to the page of the [synthetic dataset](https://www.synapse.org/#!Synapse:syn21978034) provided by the COVID-19 DREAM Challenge. This page provides useful information about the format and content of the synthetic data.
 
-2. Download the file [synthetic_data.tar.gz](https://www.synapse.org/#!Synapse:syn22043931) to the location of this example folder (only available to registered participants).
+2. Download the file [q2_synthetic_data_08-19-2020.tar.gz](https://www.synapse.org/#!Synapse:syn22043931) to the location of this example folder (only available to registered participants).
 
 3. Extract the content of the archive
 
     ```bash
-    $ tar xvf synthetic_data.tar.gz
-    x synthetic_data/
-    x synthetic_data/training
-    x synthetic_data/evaluation
+    $ tar xvf q2_synthetic_data_08-19-2020.tar.gz
+    x q2_synthetic_data_08-19-2020/
+    x q2_synthetic_data_08-19-2020/training
+    x q2_synthetic_data_08-19-2020/evaluation
     ```
 
-4. Create an `output` , `model` and `scratch` (optional) folders.
+4. Create an `output` , `model` and any optional folders you need for your scripts
 
     ```bash
-    mkdir output scratch model
+    mkdir output model
     ```
 
-5. Run the dockerized model to train on the patients in the training dataset.
+5. Rename the folder to `synthetic_data` and run the dockerized model to train on the patients in the training dataset.
 
     ```bash
     docker run \
@@ -55,6 +55,8 @@ During the inference stage, we create a feature matrix using the same set of dem
         -v $(pwd)/model:/model:rw \
         awesome-covid19-q2-model:v1 bash /app/train.sh
     ```
+
+    This add your local volumes to the docker volumes so that train.sh can access it, which reads from the docker's directory /app for the data to train on.
 
 6. Run the trained model on evaluation dataset and generate the prediction file.
 
@@ -79,6 +81,22 @@ During the inference stage, we create a feature matrix using the same set of dem
     ...
     ```
 
+8. You're not required to run through steps 1-7 in order to submit to the competition. This just to help you understand how it works and make sure your code runs as expected.
+
 ## Submit this model to the COVID-19 DREAM Challenge
 
 This model meets the requirements for models to be submitted to Question 2 of the COVID-19 DREAM Challenge. Please see [this page](https://www.synapse.org/#!Synapse:syn21849255/wiki/602419) for instructions on how to submit this model.
+
+In short 
+- Make sure you've created a project like in https://www.synapse.org/#!Profile:3416236/projects. You can access it by clicking on your Profile icon > project, after you've logged in.
+- Create an alias of your docker image that you've built. `docker tag awesome-covid19-q2-model:v1 docker.synapse.org/syn23585053/example_baseline`. the `syn23585053` must match your project ID. If you do `docker images` you'll see that both have the same image IDs.
+- Login to Synapse's docker hub: `docker login docker.synapse.org` and use your Synapse login credential
+- Push up the image `docker push docker.synapse.org/syn23585053/example_baseline`
+- Now go back to your project page and click on the "Docker" tab. You should see the image there.
+- Click on the image > Click on "Docker repository tool" on the right hand side. > Click "Submit docker repository to a challenge" in the dropdown.
+- You'll get an email once the result is back. Or/and you can check the dashboard here: https://www.synapse.org/#!Synapse:syn21849255/wiki/605229 
+ 
+
+## What happened after submission
+
+The two docker commands you ran earlier will be run on the DREAM platform, this time with the real EHR data instead of synthetic data. You will get an email then to 
