@@ -106,4 +106,5 @@ class TestFeatureETL(unittest.TestCase):
             self.assertTrue(dfs_are_equal_on_given_columns(parsed_part_of_full_df, parsed_df, parsed_concepts_in_tot))
             
 if __name__ == '__main__':
+    print("\nRunning ETL tests... (takes ~5 minutes)")
     unittest.main()
