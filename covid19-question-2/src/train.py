@@ -65,6 +65,10 @@ def logit_model(predictors):
     print("Training stage finished", flush = True)
 
 if __name__ == '__main__':
+
+    # ETL and preprocessing. Note that it should read data from /app, which is the volume of the docker image.
     covid_measurement = add_COVID_measurement_date()
     predictors = add_demographic_data(covid_measurement)
+
+    # train the model and save it to the /model folder. 
     logit_model(predictors)
