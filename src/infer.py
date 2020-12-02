@@ -1,0 +1,57 @@
+#Ignore Warnings
+import warnings
+warnings.filterwarnings(action='ignore')
+
+'''Import Scripts'''
+from etl import *
+
+'''Data Tools'''
+import numpy as np
+import pandas as pd
+
+'''For loading models'''
+import pickle
+from joblib import load
+
+RANDOM_SEED = 420420
+
+def prepare_data(feature_id_map):
+    #Set Paths
+    EVAL_PATH = "data/evaluation"
+
+    #Prep Data
+    print("Preparing Data")
+    
+    #Create feature data frame
+    df_eval_set = create_feature_df(feature_id_map, path=EVAL_PATH)
+
+    #Join gold standard
+    gs = pd.read_csv(EVAL_PATH + "/goldstandard.csv")
+    df_gold_standard = gs.set_index('person_id')
+    df_merged_eval_set = df_eval_set.join(df_gold_standard)
+
+    #Initalize Data Sets
+    X_set =  df_merged_eval_set.loc[:, df_merged_eval_set .columns != 'status']
+    Y_set = df_merged_eval_set.status
+    X_set = np.array(X_set)
+    Y_set = np.array(Y_set)
+
+    return X_set
+
+def prediction(X_test):
+    clf =  load('model/baseline.joblib')
+    Y_pred = clf.predict_proba(X_test)[:,1]
+    output_prob = pd.DataFrame(Y_pred,columns = ['score'])
+    output_prob.index.name ='person_id'
+    output_prob.reset_index(inplace=True)
+    output_prob = output_prob.fillna(0)
+    output_prob.to_csv('output/predictions.csv', index = False)
+    print("Inferring stage finished", flush = True)
+
+if __name__ == "__main__":
+
+    with open('features/feature_dict.pickle', 'rb') as feature_dict:
+        feature_id_map = pickle.load(feature_dict)
+
+    X = prepare_data(feature_id_map)
+    prediction(X)
