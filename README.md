@@ -1,4 +1,4 @@
-# Example model for COVID-19 DREAM Challenge: Question 2
+# Model for COVID-19 DREAM Challenge: Question 2
 
 ## Overview
 
@@ -6,7 +6,7 @@ Here we describe how to build and run locally an example model provided for Chal
 
 ## Description of the model
 
-This example model takes all features in the data set. First, we generate a feature set for each patient in the `/data` folder using the features and then we apply a 10-fold cross-validation logistic regression model on the feature set. Once the model is trained, we save the model file in the `/model`folder.
+This model takes all features in the data set. First, we generate a feature set for each patient in the `/data` folder using the features and then we apply a 10-fold cross-validation model of choice [Logistic Regression, Support Vector Machine, Random Forest] on the feature set. Once the model is trained, we save the model file in the `/model`folder.
 
 During the inference stage, we create a feature matrix using the same set of demographics features. Then we load the trained model and apply the model on the feature matrix to generate a prediction file as `/output/predictions.csv`
 
@@ -81,4 +81,4 @@ During the inference stage, we create a feature matrix using the same set of dem
 
 ## Submit this model to the COVID-19 DREAM Challenge
 
-This model meets the requirements for models to be submitted to Question 2 of the COVID-19 DREAM Challenge. Please see [this page](https://www.synapse.org/#!Synapse:syn21849255/wiki/602419) for instructions on how to submit this model.
+This model meets the requirements (As of Dec 2020) for models to be submitted to Question 2 of the COVID-19 DREAM Challenge. Please see [this page](https://www.synapse.org/#!Synapse:syn21849255/wiki/602419) for instructions and updated requirements on how to submit this model.
