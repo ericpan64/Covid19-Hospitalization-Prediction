@@ -91,16 +91,17 @@ class TestFeatureETL(unittest.TestCase):
             fc_map = {v:k for k, v in cf_map.items()}
             parsed_concepts = set(parsed_df.columns)
             tot_concepts = set([fc_map[fid] for fid in full_df.columns])
-            orig_concepts = set([fc_map[fid] for fid in orig_df.columns])
+            orig_concepts = tot_concepts.difference(parsed_concepts)
             parsed_concepts_in_tot = tot_concepts.difference(orig_concepts)
 
             self.assertTrue(ids_in_first_are_superset_of_second(tot_concepts, orig_concepts))
             self.assertTrue(ids_in_first_are_superset_of_second(parsed_concepts, parsed_concepts_in_tot))
             self.assertTrue(sorted_objects_are_NOT_equal(parsed_concepts, orig_concepts))
 
-            orig_features = orig_df.columns
+            orig_features = [cf_map[cid] for cid in orig_concepts]
             parsed_features_in_tot = [cf_map[cid] for cid in parsed_concepts_in_tot]
             parsed_part_of_full_df = full_df[parsed_features_in_tot]
+            
             parsed_part_of_full_df.columns = parsed_df[parsed_concepts_in_tot].columns
             self.assertTrue(dfs_are_equal_on_given_columns(full_df, orig_df, orig_features))
             self.assertTrue(dfs_are_equal_on_given_columns(parsed_part_of_full_df, parsed_df, parsed_concepts_in_tot))

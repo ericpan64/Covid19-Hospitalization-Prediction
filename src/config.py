@@ -1,5 +1,5 @@
 ''' ETL Config Variables '''
-TRAIN_PATH ='./data/DREAM_data/training' # running from dir containing src folder
+TRAIN_PATH ='./data/DREAM_data/training' # path running from dir containing src folder
 EVAL_PATH = './data/DREAM_data/evaluation'
 FILENAME_LIST = ['condition_occurrence.csv', 'device_exposure.csv', 'goldstandard.csv', 
     'measurement.csv', 'observation_period.csv', 'observation.csv', 
