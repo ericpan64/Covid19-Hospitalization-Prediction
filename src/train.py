@@ -26,14 +26,14 @@ RANDOM_SEED = 420420
 
 def prepare_data():
     #Set Paths
-    TRAIN_PATH = "data/training"
+    TRAIN_PATH = "/data"
 
     #Prep Data
     print("Preparing Data")
     concept_feature_id_map_train_set, corr_series = get_highest_corr_concept_feature_id_map_and_corr_series(specific_path=TRAIN_PATH, keep_first_n=None, use_parsed_values=True, agg_imp_config=DEFAULT_AGG_IMP_CONFIG)
 
     #Save list of features for use in eval set
-    with open('features/feature_dict.pickle', 'wb') as features:
+    with open('/features/feature_dict.pickle', 'wb') as features:
         pickle.dump(concept_feature_id_map_train_set, features, protocol=pickle.HIGHEST_PROTOCOL)
     
     #Create feature data frames
@@ -117,7 +117,7 @@ def logit_model (X_train, Y_train, model_type ='None'):
 
 
     #Save Model
-    dump(model_clf, 'model/baseline.joblib')
+    dump(model_clf, '/model/baseline.joblib')
     print("Training stage finished", flush = True)
 
    
