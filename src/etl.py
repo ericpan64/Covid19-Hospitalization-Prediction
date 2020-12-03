@@ -401,6 +401,8 @@ def generate_concept_summary(path=TRAIN_PATH, save_csv=False, specific_cid_list=
     add_concept_name_and_table_columns_to_df_all_summary(df_all_summary)
     df_avg_per_pid = get_avg_counts_per_pid_from_concept_pid_pairs_df(df_all)
     df_all_summary.insert(1, "avg_per_pid", df_avg_per_pid)
+    final_col_order = ['unique_pid_count', 'avg_per_pid', 'concept_name','from_table']
+    df_all_summary = df_all_summary[final_col_order]
     if save_csv:
         df_all_summary.to_csv(DATA_PATH + f'/concept_summary_{str(date.today())}.csv')
 
@@ -448,10 +450,11 @@ def get_avg_counts_per_pid_from_concept_pid_pairs_df(df_all):
         .reset_index()
     df_all_avg.columns = df_all_avg.columns.droplevel(level=[1,2]) # remove multiindex
     df_avg_per_pid = df_all_avg.loc[:, 'avg_per_pid']
+    df_avg_per_pid.index = df_all_avg.loc[:, 'concept_id']
     return df_avg_per_pid
 
 ''' Command Line Tool '''
-def get_vars_based_on_cid_file_path(data_dir, cid_file_path):
+def get_vars_based_on_cid_file_path(data_dir, cid_file_path, results_dir):
     file_ext_is_dot_txt = lambda fn: fn[-4:] == '.txt'
     timestamp = str(date.today())
     data_dir_name = basename(data_dir)
@@ -468,6 +471,40 @@ def get_vars_based_on_cid_file_path(data_dir, cid_file_path):
         cf_map_base_path = results_dir + f'/{timestamp}_cf_map_FROM_{data_dir_name}'
     return cid_list, df_base_path, cf_map_base_path
 
+def unpack_args_dict(args_dict):
+    data_dir = args_dict['data_dir']
+    results_dir = args_dict['results_dir']
+    cid_file_path = args_dict['cid_list_file']
+    use_corr = args_dict['order_cf_map_by_corr']
+    return data_dir, results_dir, cid_file_path, use_corr
+
+def run_etl_with_args_dict(args_dict):
+    data_dir, results_dir, cid_file_path, use_corr = unpack_args_dict(args_dict)
+    cid_list, df_base_path, cf_map_base_path = get_vars_based_on_cid_file_path(data_dir, cid_file_path, results_dir)
+
+    if use_corr == None:
+        cf_map = get_concept_feature_id_map(specific_path=data_dir, specific_cid_list=cid_list)
+    elif use_corr:
+        cf_map, _ = get_highest_corr_concept_feature_id_map_and_corr_series(specific_path=data_dir, specific_cid_list=cid_list)
+    feature_df = create_feature_df(cf_map, path=data_dir)
+    return feature_df, cf_map, df_base_path, cf_map_base_path
+
+def save_feature_df_and_cf_map_to_pickle_and_csv(feature_df, cf_map, df_base_path, cf_map_base_path):
+    df_pickle_filepath = df_base_path + '.pickle'
+    df_csv_filepath = df_base_path + '.csv'
+    cf_map_pickle_filepath = cf_map_base_path + '.pickle'
+    cf_map_csv_filepath = cf_map_base_path + '.csv'
+
+    pickle.dump(feature_df, open(df_pickle_filepath, 'wb'))
+    pickle.dump(cf_map, open(cf_map_pickle_filepath, 'wb'))
+
+    feature_df.to_csv(path_or_buf=df_csv_filepath)
+    cf_map_as_df = pd.DataFrame(cf_map.items())
+    cf_map_as_df.columns = ['concept_id', 'feature_id']
+    cf_map_as_df.to_csv(path_or_buf=cf_map_csv_filepath, index=False)
+    print(f"feature_df files saved to: {df_base_path}")
+    print(f"cf_map files saved to:     {cf_map_base_path}")
+
 if __name__ == '__main__':
     import argparse
     import pickle
@@ -480,31 +517,5 @@ if __name__ == '__main__':
     parser.add_argument('--order_cf_map_by_corr', type=bool, required=False, help='Set to True if you want the features in the concept_feature_id_map to be ordered by Pearson correlation.')
     args_dict = vars(parser.parse_args())
     
-    # Convert inputs to appropriate variables
-    data_dir = args_dict['data_dir']
-    results_dir = args_dict['results_dir']
-    cid_file_path = args_dict['cid_list_file']
-    use_corr = args_dict['order_cf_map_by_corr']
-    cid_list, df_base_path, cf_map_base_path = get_vars_based_on_cid_file_path(data_dir, cid_file_path)
-
-    df_pickle_filepath = df_base_path + '.pickle'
-    df_csv_filepath = df_base_path + '.csv'
-    cf_map_pickle_filepath = cf_map_base_path + '.pickle'
-    cf_map_csv_filepath = cf_map_base_path + '.csv'
-
-    # Run ETL
-    if use_corr == None:
-        cf_map = get_concept_feature_id_map(specific_path=data_dir, specific_cid_list=cid_list)
-    elif use_corr:
-        cf_map, _ = get_highest_corr_concept_feature_id_map_and_corr_series(specific_path=data_dir, specific_cid_list=cid_list)
-    feature_df = create_feature_df(cf_map, path=data_dir)
-
-    # Save as .pickle files
-    pickle.dump(feature_df, open(df_pickle_filepath, 'wb'))
-    pickle.dump(cf_map, open(cf_map_pickle_filepath, 'wb'))
-
-    # Save as .csv files
-    feature_df.to_csv(path_or_buf=df_csv_filepath)
-    cf_map_as_df = pd.DataFrame(cf_map.items())
-    cf_map_as_df.columns = ['concept_id', 'feature_id']
-    cf_map_as_df.to_csv(path_or_buf=cf_map_csv_filepath, index=False)
+    feature_df, cf_map, df_base_path, cf_map_base_path = run_etl_with_args_dict(args_dict)
+    save_feature_df_and_cf_map_to_pickle_and_csv(feature_df, cf_map, df_base_path, cf_map_base_path)
