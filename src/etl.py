@@ -8,9 +8,9 @@ from scipy.sparse import coo_matrix
 from datetime import date, datetime
 
 ''' Global Variables '''
-DATA_PATH = 'data'
-TRAIN_PATH = DATA_PATH + '/training'
-EVAL_PATH = DATA_PATH + '/evaluation'
+DATA_PATH = '/data'
+TRAIN_PATH = DATA_PATH
+EVAL_PATH = DATA_PATH
 FILENAME_LIST = ['condition_occurrence.csv', 'device_exposure.csv', 'goldstandard.csv', 
     'measurement.csv', 'observation_period.csv', 'observation.csv', 
     'person.csv', 'procedure_occurrence.csv', 'visit_occurrence.csv']
@@ -85,7 +85,7 @@ def get_concept_feature_id_map(specific_path=None, specific_concept_id_list=None
         concept_id_list = get_unique_cid_list_from_TRAIN_and_EVAL(include_parsed_values) if specific_path == None else get_unique_cid_list(specific_path, include_parsed_values)
     else:
         if type(specific_concept_id_list) != list:
-            raise TypeError(f"Error: concept_id_list needs to be a list, got: {type(concept_id_list)}")
+            raise TypeError(f"Error: concept_id_list needs to be a list, got:{type(concept_id_list)}")
         concept_id_list = (dict.fromkeys(specific_concept_id_list)).keys() # from: https://stackoverflow.com/a/39835527
     return {k: v for v, k in enumerate(concept_id_list)} # from: https://stackoverflow.com/a/36460020
 

@@ -17,7 +17,7 @@ RANDOM_SEED = 420420
 
 def prepare_data(feature_id_map):
     #Set Paths
-    EVAL_PATH = "data/evaluation"
+    EVAL_PATH = "/data"
 
     #Prep Data
     print("Preparing Data")
@@ -39,18 +39,18 @@ def prepare_data(feature_id_map):
     return X_set
 
 def prediction(X_test):
-    clf =  load('model/baseline.joblib')
+    clf =  load('/model/baseline.joblib')
     Y_pred = clf.predict_proba(X_test)[:,1]
     output_prob = pd.DataFrame(Y_pred,columns = ['score'])
     output_prob.index.name ='person_id'
     output_prob.reset_index(inplace=True)
     output_prob = output_prob.fillna(0)
-    output_prob.to_csv('output/predictions.csv', index = False)
+    output_prob.to_csv('/output/predictions.csv', index = False)
     print("Inferring stage finished", flush = True)
 
 if __name__ == "__main__":
 
-    with open('features/feature_dict.pickle', 'rb') as feature_dict:
+    with open('/features/feature_dict.pickle', 'rb') as feature_dict:
         feature_id_map = pickle.load(feature_dict)
 
     X = prepare_data(feature_id_map)
