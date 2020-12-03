@@ -5,7 +5,7 @@ from sklearn.impute import SimpleImputer, IterativeImputer
 from sklearn.preprocessing import normalize
 from scipy.sparse import coo_matrix
 from datetime import date, datetime
-from config import TRAIN_PATH, EVAL_PATH, FILENAME_LIST, FILENAME_CLIN_CONCEPT_MAP, AGG_IMP_CONFIG, INCLUDE_PARSED_VALUES
+from config import DATA_PATH, TRAIN_PATH, EVAL_PATH, FILENAME_LIST, FILENAME_CLIN_CONCEPT_MAP, AGG_IMP_CONFIG, INCLUDE_PARSED_VALUES
 
 ''' Public Functions '''
 def get_unique_pid_list(path=TRAIN_PATH):

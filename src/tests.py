@@ -1,7 +1,7 @@
 import unittest
-import etl
 import numpy as np
 import pandas as pd
+import etl
 
 PATHS = [etl.TRAIN_PATH, etl.EVAL_PATH]
 
@@ -21,7 +21,7 @@ class TestFeatureETL(unittest.TestCase):
 
     def test_feature_id_processing(self):
         def assert_that_feature_ids_are_preserved(concept_id_list, should_be_all_zeros=False):
-            cf_map = etl.get_concept_feature_id_map(specific_concept_id_list=concept_id_list)
+            cf_map = etl.get_concept_feature_id_map(specific_cid_list=concept_id_list)
             feature_ids_in_cf_map_is_superset_of_df_columns = lambda cf_map, df: set([cf_map[cid] for cid in cf_map]).issuperset(set(df.columns.values))
             df_is_all_zeros = lambda df: (df == 0.0).all().all()
             for path in PATHS:
