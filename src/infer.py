@@ -15,7 +15,11 @@ import pickle
 
 RANDOM_SEED = 420420
 
-def prepare_data():
+def prepare_data(use_pca=False):
+    '''
+    Function to prepare data for evaluation
+    If PCA was implemented in training set use_pca = True.
+    '''
     #Set Paths
     EVAL_PATH = "/data"
 
@@ -23,10 +27,10 @@ def prepare_data():
     print("Preparing Data")
     
     #Read In Feature List
-    feature_id_map =  load('/model/feature_dict.pickle')
+    feature_id_map_eval =  load('/model/feature_dict.pickle')
     
     #Create feature data frame
-    df_eval_set = create_feature_df(feature_id_map, path=EVAL_PATH)
+    df_eval_set = create_feature_df(feature_id_map_eval, path=EVAL_PATH)
 
     #Join gold standard
     gs = pd.read_csv(EVAL_PATH + "/goldstandard.csv")
@@ -38,9 +42,9 @@ def prepare_data():
     Y_set = df_merged_eval_set.status
 
     #Load PCA for transformation
-    pca =  load('/model/pca.pickle')
-
-    X_set = pca.transform(X_set)
+    if use_pca:
+        pca =  load('/model/pca.pickle')
+        X_set = pca.transform(X_set)
 
     X_set = np.array(X_set)
     Y_set = np.array(Y_set)
@@ -58,5 +62,5 @@ def prediction(X_test):
     print("Inferring stage finished", flush = True)
 
 if __name__ == "__main__":
-    X = prepare_data()
+    X = prepare_data(use_pca=True)
     prediction(X)
