@@ -30,7 +30,7 @@ def prepare_data():
 
     #Prep Data
     print("Preparing Data")
-    concept_feature_id_map_train_set, corr_series = get_highest_corr_concept_feature_id_map_and_corr_series(specific_path=TRAIN_PATH, keep_first_n=None, use_parsed_values=True, agg_imp_config=DEFAULT_AGG_IMP_CONFIG)
+    concept_feature_id_map_train_set = get_concept_feature_id_map(specific_path=TRAIN_PATH, specific_concept_id_list=None, include_parsed_values=True)
 
     #Save list of features for use in eval set
     dump(concept_feature_id_map_train_set, '/model/feature_dict.pickle')
