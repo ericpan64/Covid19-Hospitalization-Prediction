@@ -39,7 +39,7 @@ def prepare_data(import_specific_id_list=False, use_pca=False):
     print("Preparing Data")
     if import_specific_id_list:
         print("\nUtilizing Custom Feature List")
-        with open("/model/CustomFeaturesList.txt", "r") as feature_list:
+        with open("/model/CustomIdList.txt", "r") as feature_list:
             features = [int(line.rstrip('\n')) for line in feature_list]
         concept_feature_id_map_train_set = get_concept_feature_id_map(specific_path=TRAIN_PATH, specific_concept_id_list=features, include_parsed_values=True)
     else:
@@ -133,10 +133,12 @@ def logit_model (X_set, Y_set):
             cv=10)
 
     #List of pipelines for iteration
-    grids = [grid_lr,grid_svm, grid_rf]
+    # grids = [grid_lr,grid_svm, grid_rf]
+    grids = [grid_lr]
 
     #Dictionary of pipelines and classifier types for reference
-    grid_dict = {0: 'Logistic Regression', 1:'Support Vector Machine', 2:'Random Forest'}
+    # grid_dict = {0: 'Logistic Regression', 1:'Support Vector Machine', 2:'Random Forest'}
+    grid_dict = {0: 'Logistic Regression'}
 
     #Fit the grid search objects
     print('\nPerforming Model Optimization')
@@ -170,5 +172,5 @@ def logit_model (X_set, Y_set):
     print("\nTraining stage finished", flush = True)
    
 if __name__ == "__main__":
-    X, Y = prepare_data(import_specific_id_list=True, use_pca=True)
+    X, Y = prepare_data(import_specific_id_list=False, use_pca=False)
     logit_model(X, Y)
