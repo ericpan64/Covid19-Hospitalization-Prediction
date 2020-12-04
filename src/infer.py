@@ -10,17 +10,20 @@ import numpy as np
 import pandas as pd
 
 '''For loading models'''
-import pickle
 from joblib import load
+import pickle
 
 RANDOM_SEED = 420420
 
-def prepare_data(feature_id_map):
+def prepare_data():
     #Set Paths
     EVAL_PATH = "/data"
 
     #Prep Data
     print("Preparing Data")
+    
+    #Read In Feature List
+    feature_id_map =  load('/model/feature_dict.pickle')
     
     #Create feature data frame
     df_eval_set = create_feature_df(feature_id_map, path=EVAL_PATH)
@@ -49,9 +52,5 @@ def prediction(X_test):
     print("Inferring stage finished", flush = True)
 
 if __name__ == "__main__":
-
-    with open('/features/feature_dict.pickle', 'rb') as feature_dict:
-        feature_id_map = pickle.load(feature_dict)
-
-    X = prepare_data(feature_id_map)
+    X = prepare_data()
     prediction(X)

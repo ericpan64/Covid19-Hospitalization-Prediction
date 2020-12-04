@@ -36,7 +36,6 @@ COPY src/etl.py .
 COPY train.sh .
 COPY infer.sh .
 
-
 # Add executable permission to Bash scripts
 RUN chmod +x train.sh
 RUN chmod +x infer.sh

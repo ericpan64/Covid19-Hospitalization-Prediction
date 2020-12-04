@@ -33,9 +33,8 @@ def prepare_data():
     concept_feature_id_map_train_set, corr_series = get_highest_corr_concept_feature_id_map_and_corr_series(specific_path=TRAIN_PATH, keep_first_n=None, use_parsed_values=True, agg_imp_config=DEFAULT_AGG_IMP_CONFIG)
 
     #Save list of features for use in eval set
-    with open('/features/feature_dict.pickle', 'wb') as features:
-        pickle.dump(concept_feature_id_map_train_set, features, protocol=pickle.HIGHEST_PROTOCOL)
-    
+    dump(concept_feature_id_map_train_set, '/model/feature_dict.pickle')
+        
     #Create feature data frames
     df_train_set = create_feature_df(concept_feature_id_map_train_set, path=TRAIN_PATH)
 

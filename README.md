@@ -39,19 +39,19 @@ During the inference stage, we create a feature matrix using the same set of dem
     x synthetic_data/evaluation
     ```
 
-4. Create an `output` , `model` and `scratch` (optional) folders.
+4. Create an `output` , `model` and `features` folders.
 
     ```bash
-    mkdir output scratch model
+    mkdir features output model
     ```
 
 5. Run the dockerized model to train on the patients in the training dataset.
 
     ```bash
     docker run \
-        -v $(pwd)/synthetic_data/training:/data:rw \
-        -v $(pwd)/features:/features:rw \
+        -v $(pwd)/synthetic_data/training:/data:ro \
         -v $(pwd)/output:/output:rw \
+        -v $(pwd)/scratch:/scratch:rw \
         -v $(pwd)/model:/model:rw \
         awesome-covid19-q2-model:v1 bash /app/train.sh
     ```
@@ -60,9 +60,9 @@ During the inference stage, we create a feature matrix using the same set of dem
 
     ```bash
     docker run \
-        -v $(pwd)/synthetic_data/evaluation:/data:rw \
-        -v $(pwd)/features:/features:rw \
+        -v $(pwd)/synthetic_data/evaluation:/data:ro \
         -v $(pwd)/output:/output:rw \
+        -v $(pwd)/scratch:/scratch:rw \
         -v $(pwd)/model:/model:rw \
         awesome-covid19-q2-model:v1 bash /app/infer.sh
     ```
@@ -81,4 +81,22 @@ During the inference stage, we create a feature matrix using the same set of dem
 
 ## Submit this model to the COVID-19 DREAM Challenge
 
-This model meets the requirements (As of Dec 2020) for models to be submitted to Question 2 of the COVID-19 DREAM Challenge. Please see [this page](https://www.synapse.org/#!Synapse:syn21849255/wiki/602419) for instructions and updated requirements on how to submit this model.
+This model meets the requirements (As of Dec 2020) for models to be submitted to Question 2 of the COVID-19 DREAM Challenge. Please see [this page](https://www.synapse.org/#!Synapse:syn21849255/wiki/602419) for updated requirements on how to submit this model.
+
+
+## Pushing Model to Synapse
+
+In order to push a Docker image to the Docker repository of your Synapse project, the image must be renamed using the following command:
+
+    ```
+    docker tag awesome-covid19-q2-model:v1 docker.synapse.org/syn23593381/awesome-covid19-q2-model:v1
+    ```
+Where ```syn23593381``` must be replaced by the Synapse ID of your project and if desired modify the version number ```v1``` to track your model versions.
+
+In your terminal, login to the Synapse Docker registry using your Synapse credentials:
+
+```docker login docker.synapse.org```
+
+Push the Docker image to your Synapse Project using the following command. Note that you must be a Certified Synapse User in order to be able to push a Docker image to the Synapse Docker registry.
+
+```docker push docker.synapse.org/syn23593381/awesome-covid19-q2-model:v1```
