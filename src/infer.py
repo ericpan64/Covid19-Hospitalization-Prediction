@@ -36,6 +36,12 @@ def prepare_data():
     #Initalize Data Sets
     X_set =  df_merged_eval_set.loc[:, df_merged_eval_set .columns != 'status']
     Y_set = df_merged_eval_set.status
+
+    #Load PCA for transformation
+    pca =  load('/model/pca.pickle')
+
+    X_set = pca.transform(X_set)
+
     X_set = np.array(X_set)
     Y_set = np.array(Y_set)
 

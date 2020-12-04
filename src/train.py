@@ -14,8 +14,10 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.svm import SVC
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import GridSearchCV
+from sklearn.model_selection import train_test_split
 from sklearn.metrics import *
 from sklearn.pipeline import Pipeline
+from sklearn.decomposition import PCA
 
 '''For saving models'''
 from joblib import dump
@@ -24,7 +26,7 @@ import pickle
 RANDOM_SEED = 420420
 
 
-def prepare_data():
+def prepare_data(pca_components=.85):
     #Set Paths
     TRAIN_PATH = "/data"
 
@@ -47,79 +49,113 @@ def prepare_data():
     X_set =  df_merged_train_set.loc[:, df_merged_train_set .columns != 'status']
     Y_set = df_merged_train_set.status
 
+    #Implement PCA (Identifying Components Responsible for 90% of data variance)
+    pca = PCA(n_components=pca_components) 
+    pca.fit(X_set)
+    X_set = pca.transform(X_set)
+
+    #Save PCA component for inference
+    dump(pca, '/model/pca.pickle')
+
     X_set = np.array(X_set)
     Y_set = np.array(Y_set)
 
     return X_set, Y_set
 
-def logit_model (X_train, Y_train, model_type ='None'):
-    '''
-    Choose model_type when calling function:
-    'LR' for Logistic Regression
-    'SVM' for support vector machine
-    'RF' for Random Forest
-    Implementing gridsearchcv pipeline for hyperparameter tuning. 
-    '''
+def logit_model (X_set, Y_set):
 
-    #Tuning models for F1 score
-    model_score = 'f1'
+    X_train, X_test, Y_train, Y_test = train_test_split(X_set, Y_set, test_size=0.2, random_state=RANDOM_SEED)
 
-    if model_type == 'LR':
-        model_pipe = Pipeline([('clf', LogisticRegression(random_state=RANDOM_SEED))])
-        c_range = [0.0001, 0.001, 0.01, 0.1, 1, 10, 100, 1000]
-        model_grid_params = [{'clf__penalty': ['l1', 'l2'],
-                       'clf__C': c_range,
-                       'clf__solver': ['liblinear'],
-                       'clf__class_weight': (None, 'balanced')}]
+    #Generate Pipelines
 
-        print()
-        print("Start Model Training - Logistic Regression")
-        print()
+    #Logistic Regression
+    pipe_lr = Pipeline([('clf', LogisticRegression(random_state=RANDOM_SEED))])
+    grid_params_lr = [{'clf__penalty': ['l1', 'l2'],
+                'clf__C': [0.0001, 0.001, 0.01, 0.1, 1, 10, 100, 1000],
+                'clf__solver': ['liblinear'],
+                'clf__class_weight': (None, 'balanced')}]
 
-    elif model_type == 'SVM':
-        model_pipe = Pipeline([('svm', SVC(random_state=RANDOM_SEED))])
-        c_range = [1, 10, 100, 1000]
-        model_grid_params = [{'svm__kernel': ['rbf'],
-                        'svm__gamma': [1e-3, 1e-4],
-                        'svm__C': c_range},
-                        {'svm__kernel': ['linear'], 
-                        'svm__C': [1, 10, 100, 1000]}]
+    #Support Vector Machine
+    pipe_svm = Pipeline([('svm', SVC(random_state=RANDOM_SEED))])
+    grid_params_svm = [{'svm__kernel': ['rbf', 'linear'],
+                    'svm__gamma': [1e-3, 1e-4],
+                    'svm__C': [1, 10, 100, 1000]}]
 
-        print() 
-        print("Start Model Training - Support Vector Machine")
-        print()
+    #Random Forest
+    pipe_rf = Pipeline([('rf', RandomForestClassifier(random_state=RANDOM_SEED))])
+    grid_params_rf = [{'rf__bootstrap': [True, False],
+                    'rf__max_depth': [5, 8, 15, 25, 30],
+                    'rf__max_features': ['auto', 'sqrt', 'log2'],
+                    'rf__min_samples_leaf': [3, 4, 5],
+                    'rf__min_samples_split': [8, 10, 12],
+                    'rf__n_estimators': [5, 25, 50, 75, 100],
+                    'rf__criterion': ['gini', 'entropy']}]
 
-    elif model_type == 'RF':
-        model_pipe = Pipeline([('rf', RandomForestClassifier(random_state=RANDOM_SEED))])
-        max_depths = np.linspace(1, 32, 32, endpoint=True)
+    #Assign Scores
+    scores = {'AUC': 'roc_auc', 'Average_Precision': make_scorer(average_precision_score)}
 
-        model_grid_params = [{'rf__bootstrap': [True, False],
-                        'rf__max_depth': max_depths,
-                        'rf__max_features': ['auto', 'sqrt', 'log2'],
-                        'rf__min_samples_leaf': [3, 4, 5],
-                        'rf__min_samples_split': [8, 10, 12],
-                        'rf__n_estimators': [100, 200, 300, 500],
-                        'rf__criterion': ['gini', 'entropy']}]
-        print() 
-        print("Start Model Training - Random Forest")
-        print()
-
-        
-    model_grid = GridSearchCV(estimator=model_pipe, 
-                    param_grid=model_grid_params, 
-                    scoring=model_score, 
+    #Construct Grid Search Pipelines
+    grid_lr = GridSearchCV(estimator=pipe_lr, 
+                    param_grid=grid_params_lr, 
+                    scoring= scores,
+                    refit = 'AUC',
                     verbose = 0, 
                     n_jobs=-1,
-                    cv=10) 
+                    cv=10)
 
-    model_clf = model_grid.fit(X_train, Y_train)
+    grid_svm = GridSearchCV(estimator=pipe_svm, 
+                param_grid=grid_params_svm, 
+                scoring= scores,
+                refit = 'AUC',
+                verbose = 0, 
+                n_jobs=-1,
+                cv=10)
 
+    grid_rf = GridSearchCV(estimator=pipe_rf, 
+            param_grid=grid_params_rf, 
+            scoring= scores,
+            refit = 'AUC',
+            verbose = 0, 
+            n_jobs=-1,
+            cv=10)
 
-    #Save Model
-    dump(model_clf, '/model/baseline.joblib')
-    print("Training stage finished", flush = True)
+    #List of pipelines for iteration
+    grids = [grid_lr,grid_svm, grid_rf]
 
+    #Dictionary of pipelines and classifier types for reference
+    grid_dict = {0: 'Logistic Regression', 1:'Support Vector Machine', 2:'Random Forest'}
+
+    #Fit the grid search objects
+    print('\nPerforming Model Optimization')
+    best_acc = 0.0
+    best_clf = 0
+    best_gs = ''
+    
+    for idx, gs in enumerate(grids):
+        print('\nEstimator: %s' % grid_dict[idx])	
+        # Fit grid search	
+        gs.fit(X_train, Y_train)
+        # Best params
+        print('Best params: %s' % gs.best_params_)
+        # Predict on test data with params
+        Y_pred = gs.predict(X_test)
+        # Test data auc of model with params
+        auc_score = roc_auc_score(Y_test, Y_pred)
+        avg_precision_score = average_precision_score(Y_test, Y_pred)
+        print('AUC score for best params: %.3f ' % auc_score)
+        print('Average Precision score for best params: %.3f ' % avg_precision_score)
+        # Track (highest test AUC or Average Precision) model
+        if auc_score > best_acc:
+            best_acc = auc_score
+            best_gs = gs
+            best_clf = idx
+    print('\nClassifier with best Score: %s' % grid_dict[best_clf])
+
+    # Save best grid search pipeline to file
+    dump(best_gs, '/model/baseline.joblib')
+    print('\nSaved %s grid search pipeline to file: baseline.joblib' % (grid_dict[best_clf]))
+    print("\nTraining stage finished", flush = True)
    
 if __name__ == "__main__":
-    X, Y = prepare_data()
-    logit_model(X, Y, model_type ='LR')
+    X, Y = prepare_data(pca_components=.85)
+    logit_model(X, Y)
