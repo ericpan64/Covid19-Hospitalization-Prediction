@@ -20,19 +20,31 @@ from sklearn.pipeline import Pipeline
 from sklearn.decomposition import PCA
 
 '''For saving models'''
-from joblib import dump
+from joblib import dump, load
 import pickle
 
 RANDOM_SEED = 420420
 
+def prepare_data(import_specific_id_list=False, use_pca=False):
+    '''
+    Function to prepare data for training
+    import_specific_id_list and use_pca are in a default false state. 
+    Utilize either to read in a feature list located in the /data folder listed in featuresList.txt
+    '''
 
-def prepare_data(pca_components=.85):
     #Set Paths
     TRAIN_PATH = "/data"
 
     #Prep Data
     print("Preparing Data")
-    concept_feature_id_map_train_set = get_concept_feature_id_map(specific_path=TRAIN_PATH, specific_concept_id_list=None, include_parsed_values=True)
+    if import_specific_id_list:
+        print("\nUtilizing Custom Feature List")
+        with open("/model/CustomFeaturesList.txt", "r") as feature_list:
+            features = [int(line.rstrip('\n')) for line in feature_list]
+        concept_feature_id_map_train_set = get_concept_feature_id_map(specific_path=TRAIN_PATH, specific_concept_id_list=features, include_parsed_values=True)
+    else:
+        #Utilize all features in data
+        concept_feature_id_map_train_set = get_concept_feature_id_map(specific_path=TRAIN_PATH, specific_concept_id_list=None, include_parsed_values=True)
 
     #Save list of features for use in eval set
     dump(concept_feature_id_map_train_set, '/model/feature_dict.pickle')
@@ -50,12 +62,13 @@ def prepare_data(pca_components=.85):
     Y_set = df_merged_train_set.status
 
     #Implement PCA (Identifying Components Responsible for 90% of data variance)
-    pca = PCA(n_components=pca_components) 
-    pca.fit(X_set)
-    X_set = pca.transform(X_set)
+    if use_pca:
+        pca = PCA(n_components=0.85) 
+        pca.fit(X_set)
+        X_set = pca.transform(X_set)
 
-    #Save PCA component for inference
-    dump(pca, '/model/pca.pickle')
+        #Save PCA component for inference
+        dump(pca, '/model/pca.pickle')
 
     X_set = np.array(X_set)
     Y_set = np.array(Y_set)
@@ -157,5 +170,5 @@ def logit_model (X_set, Y_set):
     print("\nTraining stage finished", flush = True)
    
 if __name__ == "__main__":
-    X, Y = prepare_data(pca_components=.85)
+    X, Y = prepare_data(import_specific_id_list=True, use_pca=True)
     logit_model(X, Y)
