@@ -62,5 +62,5 @@ def prediction(X_test):
     print("Inferring stage finished", flush = True)
 
 if __name__ == "__main__":
-    X = prepare_data(use_pca=True)
+    X = prepare_data(use_pca=False)
     prediction(X)
