@@ -5,7 +5,48 @@ from sklearn.impute import SimpleImputer, IterativeImputer
 from sklearn.preprocessing import normalize
 from scipy.sparse import coo_matrix
 from datetime import date, datetime
-from config import DATA_PATH, TRAIN_PATH, EVAL_PATH, FILENAME_LIST, FILENAME_CLIN_CONCEPT_MAP, AGG_IMP_CONFIG, INCLUDE_PARSED_VALUES
+
+''' ETL Config Variables '''
+DATA_PATH = '../data/DREAM_data'  # path running from inside src folder
+TRAIN_PATH = DATA_PATH + '/training'
+EVAL_PATH = DATA_PATH + '/evaluation'
+FILENAME_LIST = ['condition_occurrence.csv', 'device_exposure.csv', 'goldstandard.csv', 
+    'measurement.csv', 'observation_period.csv', 'observation.csv', 
+    'person.csv', 'procedure_occurrence.csv', 'visit_occurrence.csv']
+FILENAME_CLIN_CONCEPT_MAP = {
+    'condition_occurrence.csv': ['condition_concept_id'],
+    'device_exposure.csv': ['device_concept_id'],
+    'measurement.csv': ['measurement_concept_id',
+                        'measurement_type_concept_id'],
+    'observation.csv': ['observation_concept_id',
+                        'qualifier_concept_id'],
+    'procedure_occurrence.csv': ['procedure_concept_id',
+                                'modifier_concept_id'],
+    'visit_occurrence.csv': ['visit_concept_id'],
+    # 'person.csv': [
+    #                 'gender_concept_id',
+    #                 'race_concept_id',
+    #                 'ethnicity_concept_id',
+    #                 'location_id']
+}
+AGG_IMP_CONFIG = {
+    'count_impute_strat': 0.0, # options: {'mean', 'median', 'most_frequent', 0.0}
+    'parsed_agg_strat': 'mean',  # options: {'mean', 'median', 'sum'}
+    'parsed_impute_strat': 'mean',  # options: {'mean', 'median', 'most_frequent', 0.0}
+}
+'''
+"Parsed values" introduce the custom concept_ids from the following .csvs and schema:
+    measurement.csv
+        value_as_number: original concept_id padded with 0's to 10 digits
+        value_as_concept_id: original concept_id appended with value concept_id (will be >10 digits)
+        abnormal (range_low/range_high): original concept_id padded with 1's to 10 digits
+    observation.csv:
+        value_as_number: same as above
+        value_as_concept_id: same as above
+    person.csv:
+        person age (birthdate): custom concept_id is 1234567891011. Yes this was arbitrarily picked
+'''
+INCLUDE_PARSED_VALUES=True
 
 ''' Public Functions '''
 def get_unique_pid_list(path=TRAIN_PATH):
@@ -109,6 +150,10 @@ def create_feature_df(concept_feature_id_map,  path=TRAIN_PATH, use_parsed_value
     return df_norm
 
 ''' "Private" Functions '''
+def reverse_dict(d):
+    assert type(d) == dict
+    return {v:k for k,v in d.items()}
+
 def get_concept_list_and_corr_series_ordered_by_correlation(path, specific_cid_list=None, use_parsed_values=INCLUDE_PARSED_VALUES, agg_imp_config=AGG_IMP_CONFIG):
     """
     Gets list of concept ids and pd.Series of correlation magnitudes sorted by highest-correlation to "goldstandard.csv"
@@ -213,7 +258,7 @@ def impute_missing_data_univariate(X, missing_val=0.0, strategy='most_frequent')
     return X_new
 
 def convert_from_fids_to_cids(concept_feature_id_map, sorted_feature_ids, corr_series):
-    fid_to_cid_map = {v:k for k, v in concept_feature_id_map.items()}
+    fid_to_cid_map = reverse_dict(concept_feature_id_map)
     sorted_concept_ids = [fid_to_cid_map[fid] for fid in sorted_feature_ids]
     cid_idx_list = [fid_to_cid_map[fid] for fid in list(corr_series.index)]
     return sorted_concept_ids, pd.Index(cid_idx_list)
@@ -469,6 +514,7 @@ def get_avg_counts_per_pid_from_concept_pid_pairs_df(df_all):
 
 ''' Command Line Tool '''
 def get_vars_based_on_cid_file_path(data_dir, cid_file_path, results_dir):
+    from os.path import basename
     file_ext_is_dot_txt = lambda fn: fn[-4:] == '.txt'
     timestamp = str(date.today())
     data_dir_name = basename(data_dir)
@@ -522,7 +568,6 @@ def save_feature_df_and_cf_map_to_pickle_and_csv(feature_df, cf_map, df_base_pat
 if __name__ == '__main__':
     import argparse
     import pickle
-    from os.path import basename
 
     parser = argparse.ArgumentParser(description='Converts OMOP-formatted csv files into feature DataFrame for training. Saves as pickle files and csvs to specified directory.')
     parser.add_argument('--data_dir', type=str, required=True, help='Filepath to directory containing OMOP-formatted .csv files (e.g. "~/Documents/data_dir")')
