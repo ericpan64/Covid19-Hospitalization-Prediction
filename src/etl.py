@@ -1,62 +1,52 @@
 import pandas as pd
 import numpy as np
-from os import getcwd
 from sklearn.experimental import enable_iterative_imputer # https://stackoverflow.com/a/56738037
 from sklearn.impute import SimpleImputer, IterativeImputer
 from sklearn.preprocessing import normalize
 from scipy.sparse import coo_matrix
 from datetime import date, datetime
 
-''' Global Variables '''
-DATA_PATH = '/data'
-TRAIN_PATH = DATA_PATH
-EVAL_PATH = DATA_PATH
+''' ETL Config Variables '''
+DATA_PATH = '../data/DREAM_data'  # path running from inside src folder
+TRAIN_PATH = DATA_PATH + '/training'
+EVAL_PATH = DATA_PATH + '/evaluation'
 FILENAME_LIST = ['condition_occurrence.csv', 'device_exposure.csv', 'goldstandard.csv', 
     'measurement.csv', 'observation_period.csv', 'observation.csv', 
     'person.csv', 'procedure_occurrence.csv', 'visit_occurrence.csv']
 FILENAME_CLIN_CONCEPT_MAP = {
-    'condition_occurrence.csv': ['condition_concept_id',
-                                # 'condition_type_concept_id',
-                                'condition_source_concept_id',
-                                # 'condition_status_concept_id'
-                                ],
-    'device_exposure.csv': ['device_concept_id',
-                            # 'device_type_concept_id',
-                            'device_source_concept_id'],
+    'condition_occurrence.csv': ['condition_concept_id'],
+    'device_exposure.csv': ['device_concept_id'],
     'measurement.csv': ['measurement_concept_id',
-                        'measurement_type_concept_id',
-                        # 'operator_concept_id',
-                        # 'value_as_concept_id',
-                        # 'unit_concept_id',
-                        'measurement_source_concept_id'],
+                        'measurement_type_concept_id'],
     'observation.csv': ['observation_concept_id',
-                        # 'observation_type_concept_id',
-                        # 'value_as_concept_id',
-                        'qualifier_concept_id',
-                        # 'unit_concept_id',
-                        'observation_source_concept_id'],
-    # 'observation_period.csv': ['period_type_concept_id'],
+                        'qualifier_concept_id'],
     'procedure_occurrence.csv': ['procedure_concept_id',
-                                # 'procedure_type_concept_id',
-                                'modifier_concept_id',
-                                'procedure_source_concept_id'],
-    'visit_occurrence.csv': ['visit_concept_id',
-                        # 'visit_type_concept_id',
-                        'visit_source_concept_id',
-                        # 'admitting_source_concept_id',
-                        # 'discharge_to_concept_id''
-                        ],
+                                'modifier_concept_id'],
+    'visit_occurrence.csv': ['visit_concept_id'],
     # 'person.csv': [
     #                 'gender_concept_id',
     #                 'race_concept_id',
     #                 'ethnicity_concept_id',
     #                 'location_id']
 }
-DEFAULT_AGG_IMP_CONFIG = {
+AGG_IMP_CONFIG = {
     'count_impute_strat': 0.0, # options: {'mean', 'median', 'most_frequent', 0.0}
     'parsed_agg_strat': 'mean',  # options: {'mean', 'median', 'sum'}
     'parsed_impute_strat': 'mean',  # options: {'mean', 'median', 'most_frequent', 0.0}
 }
+'''
+"Parsed values" introduce the custom concept_ids from the following .csvs and schema:
+    measurement.csv
+        value_as_number: original concept_id padded with 0's to 10 digits
+        value_as_concept_id: original concept_id appended with value concept_id (will be >10 digits)
+        abnormal (range_low/range_high): original concept_id padded with 1's to 10 digits
+    observation.csv:
+        value_as_number: same as above
+        value_as_concept_id: same as above
+    person.csv:
+        person age (birthdate): custom concept_id is 1234567891011. Yes this was arbitrarily picked
+'''
+INCLUDE_PARSED_VALUES=True
 
 ''' Public Functions '''
 def get_unique_pid_list(path=TRAIN_PATH):
@@ -67,7 +57,7 @@ def get_unique_pid_list(path=TRAIN_PATH):
     pid_list = df['person_id'].unique().tolist()
     return pid_list
 
-def get_unique_cid_list(path=TRAIN_PATH, include_parsed_values=True):
+def get_unique_cid_list(path=TRAIN_PATH, include_parsed_values=INCLUDE_PARSED_VALUES):
     """
     Gets unique list of concept IDs from path
     """
@@ -77,51 +67,29 @@ def get_unique_cid_list(path=TRAIN_PATH, include_parsed_values=True):
         concept_id_list += list(parsed_df.columns)
     return concept_id_list
 
-def get_concept_feature_id_map(specific_path=None, specific_concept_id_list=None, include_parsed_values=True):
+def get_concept_feature_id_map(specific_path=None, specific_cid_list=None, include_parsed_values=INCLUDE_PARSED_VALUES):
     """
     Generates dict mapping concept_id to feature_id (0-indexed)
     """
-    if specific_concept_id_list == None:
+    if specific_cid_list == None:
         concept_id_list = get_unique_cid_list_from_TRAIN_and_EVAL(include_parsed_values) if specific_path == None else get_unique_cid_list(specific_path, include_parsed_values)
     else:
-        if type(specific_concept_id_list) != list:
-            raise TypeError(f"Error: concept_id_list needs to be a list, got:{type(concept_id_list)}")
-        concept_id_list = (dict.fromkeys(specific_concept_id_list)).keys() # from: https://stackoverflow.com/a/39835527
+        if type(specific_cid_list) != list:
+            raise TypeError(f"Error: concept_id_list needs to be a list, got: {type(concept_id_list)}")
+        concept_id_list = (dict.fromkeys(specific_cid_list)).keys() # from: https://stackoverflow.com/a/39835527
     return {k: v for v, k in enumerate(concept_id_list)} # from: https://stackoverflow.com/a/36460020
 
-def get_concept_list_and_corr_series_ordered_by_correlation(path, specific_concept_id_list=None, use_parsed_values=True, agg_imp_config=DEFAULT_AGG_IMP_CONFIG):
-    """
-    Gets list of concept ids and pd.Series of correlation magnitudes sorted by highest-correlation to "goldstandard.csv"
-    NOTE: this drops some concept_ids with N/A correlation value
-    """
-    concept_id_list = get_unique_cid_list(path, use_parsed_values) if specific_concept_id_list == None else specific_concept_id_list
-    concept_feature_id_map = get_concept_feature_id_map(path, concept_id_list)
-    feature_df = create_feature_df(concept_feature_id_map, path=path, agg_imp_config=agg_imp_config, use_parsed_values=use_parsed_values)
-    try:
-        gold_standard_df = pd.read_csv(path + '/goldstandard.csv').set_index('person_id')
-    except:
-        raise FileNotFoundError(f"Error: file {path + '/goldstandard.csv'} does not exist.")
-    merged_df = feature_df.join(gold_standard_df)
-    corr_df = merged_df.corr()
-    corr_series = corr_df.loc[:, 'status'].drop('status') # Indices are feature_ids
-    corr_series[corr_series.isnull()] = 0.0
-    sorted_feature_ids = list(abs(corr_series).sort_values(ascending=False).index)
-    sorted_concept_ids, corr_series_idx = convert_from_fids_to_cids(concept_feature_id_map, sorted_feature_ids, corr_series)
-    corr_series.index = corr_series_idx
-    return sorted_concept_ids, corr_series
-
-def get_highest_corr_concept_feature_id_map_and_corr_series(specific_path=None, keep_first_n=None, use_parsed_values=True, agg_imp_config=DEFAULT_AGG_IMP_CONFIG):
+def get_highest_corr_concept_feature_id_map_and_corr_series(specific_path=None, specific_cid_list=None, keep_first_n=None, use_parsed_values=INCLUDE_PARSED_VALUES, agg_imp_config=AGG_IMP_CONFIG):
     """
     Finds the highest-correlation features using the Pearson Coefficient and generates a concept_feature_id_map
     """
-
     if specific_path != None:
-        concept_id_list, corr_series = get_concept_list_and_corr_series_ordered_by_correlation(path=specific_path, \
+        concept_id_list, corr_series = get_concept_list_and_corr_series_ordered_by_correlation(path=specific_path, specific_cid_list=specific_cid_list, \
             use_parsed_values=use_parsed_values, agg_imp_config=agg_imp_config)
     else:
-        train_cid_list, train_corr_series = get_concept_list_and_corr_series_ordered_by_correlation(path=TRAIN_PATH, \
+        train_cid_list, train_corr_series = get_concept_list_and_corr_series_ordered_by_correlation(path=TRAIN_PATH, specific_cid_list=specific_cid_list, \
             use_parsed_values=use_parsed_values, agg_imp_config=agg_imp_config)
-        eval_cid_list, eval_corr_series = get_concept_list_and_corr_series_ordered_by_correlation(path=EVAL_PATH, \
+        eval_cid_list, eval_corr_series = get_concept_list_and_corr_series_ordered_by_correlation(path=EVAL_PATH, specific_cid_list=specific_cid_list, \
             use_parsed_values=use_parsed_values, agg_imp_config=agg_imp_config)
         unique_cid_set = set(train_cid_list) | set(eval_cid_list)
         
@@ -135,10 +103,10 @@ def get_highest_corr_concept_feature_id_map_and_corr_series(specific_path=None, 
     concept_feature_id_map = get_concept_feature_id_map(specific_path, concept_id_list)
     return concept_feature_id_map, corr_series
 
-def get_parsed_values_df(path=TRAIN_PATH, agg_imp_config=DEFAULT_AGG_IMP_CONFIG):
+def get_parsed_values_df(path=TRAIN_PATH, agg_imp_config=AGG_IMP_CONFIG):
     """
     Parses-out discrete from measurement.csv, observation.csv, and person.csv
-    Resulting df is indexed by ~concept_id~
+    Resulting df is row-indexed by patient_id and column-indexed by ~concept_id~
     """
     _, val_aggregate_strategy, val_impute_strategy = unpack_config_var(agg_imp_config)
     pid_list = get_unique_pid_list(path=path)
@@ -159,12 +127,12 @@ def get_parsed_values_df(path=TRAIN_PATH, agg_imp_config=DEFAULT_AGG_IMP_CONFIG)
     merged_df = first_half_df.join(second_half_df)
     return merged_df
 
-def create_feature_df(concept_feature_id_map,  path=TRAIN_PATH, use_parsed_values=True, agg_imp_config=DEFAULT_AGG_IMP_CONFIG):
+def create_feature_df(concept_feature_id_map,  path=TRAIN_PATH, use_parsed_values=INCLUDE_PARSED_VALUES, agg_imp_config=AGG_IMP_CONFIG):
     """
     Generates the feature DataFrame of shape m x n, with m=len(pid_list) and n=# of features
         If a patient is missing a feature, the impute settings from agg_imp_config will be used
         NOTE: if a feature column is only 0.0 values, it will be removed in the final df
-    Resulting df is indexed by ~feature_id~ from concept_feature_id_map
+    Resulting df is row-indexed by patient_id and column-indexed by ~feature_id~ from concept_feature_id_map
     """
     count_impute_strategy, _, _ = unpack_config_var(agg_imp_config)
     if type(concept_feature_id_map) != dict:
@@ -178,13 +146,32 @@ def create_feature_df(concept_feature_id_map,  path=TRAIN_PATH, use_parsed_value
     if use_parsed_values:
         df_all_summed = add_parsed_df_to_df_all_summed(path, agg_imp_config, concept_id_list, m, pid_list, df_all_summed)
 
-    # generate matrix (rows=person_id, cols=feature_id, values=sum)
     df_norm = get_normalized_df_from_df_all_summed(concept_feature_id_map, df_all_summed, m, n, count_impute_strategy)
     return df_norm
 
-
 ''' "Private" Functions '''
-def get_concept_pid_pairs_df(path=TRAIN_PATH, specific_concept_id_list=None):
+def get_concept_list_and_corr_series_ordered_by_correlation(path, specific_cid_list=None, use_parsed_values=INCLUDE_PARSED_VALUES, agg_imp_config=AGG_IMP_CONFIG):
+    """
+    Gets list of concept ids and pd.Series of correlation magnitudes sorted by highest-correlation to "goldstandard.csv"
+    NOTE: this drops some concept_ids with N/A correlation value
+    """
+    concept_id_list = get_unique_cid_list(path, use_parsed_values) if specific_cid_list == None else specific_cid_list
+    concept_feature_id_map = get_concept_feature_id_map(path, concept_id_list)
+    feature_df = create_feature_df(concept_feature_id_map, path=path, agg_imp_config=agg_imp_config, use_parsed_values=use_parsed_values)
+    try:
+        gold_standard_df = pd.read_csv(path + '/goldstandard.csv').set_index('person_id')
+    except:
+        raise FileNotFoundError(f"Error: file {path + '/goldstandard.csv'} does not exist.")
+    merged_df = feature_df.join(gold_standard_df)
+    corr_df = merged_df.corr()
+    corr_series = corr_df.loc[:, 'status'].drop('status') # Indices are feature_ids
+    corr_series[corr_series.isnull()] = 0.0
+    sorted_feature_ids = list(abs(corr_series).sort_values(ascending=False).index)
+    sorted_concept_ids, corr_series_idx = convert_from_fids_to_cids(concept_feature_id_map, sorted_feature_ids, corr_series)
+    corr_series.index = corr_series_idx
+    return sorted_concept_ids, corr_series
+
+def get_concept_pid_pairs_df(path=TRAIN_PATH, specific_cid_list=None):
     """
     Gets all (person_id, concept_id) pairs as a DataFrame
     """
@@ -197,8 +184,8 @@ def get_concept_pid_pairs_df(path=TRAIN_PATH, specific_concept_id_list=None):
         df = fn_to_df_map[fn]
         for col in FILENAME_CLIN_CONCEPT_MAP[fn]:
             df_sliced = df.loc[:, ['person_id', col]].dropna().rename(columns={col: 'concept_id'})
-            if specific_concept_id_list != None:
-                df_sliced = df_sliced.loc[df_sliced.loc[:, 'concept_id'].isin(specific_concept_id_list)]
+            if specific_cid_list != None:
+                df_sliced = df_sliced.loc[df_sliced.loc[:, 'concept_id'].isin(specific_cid_list)]
             n_rows = len(df_sliced)
             idx = pd.Series(range(row_count, row_count+n_rows), dtype=int)
             df_sliced = df_sliced.set_index(idx) 
@@ -207,14 +194,14 @@ def get_concept_pid_pairs_df(path=TRAIN_PATH, specific_concept_id_list=None):
     df_all = df_all.dropna().astype('int')
     return df_all
 
-def aggregate_pid_concept_counts_into_df(path=TRAIN_PATH, specific_concept_id_list=None):
+def aggregate_pid_concept_counts_into_df(path=TRAIN_PATH, specific_cid_list=None):
     """
     Aggregates all person_id, concept_id occurrences in the specified path and concept_id_list,
         and then sums-up the counts.
             Indexed by person_id
             Columns: ['concept_id', 'sum']
     """
-    df_all = get_concept_pid_pairs_df(path, specific_concept_id_list)
+    df_all = get_concept_pid_pairs_df(path, specific_cid_list)
     tot = len(df_all)
     df_ones = pd.DataFrame(np.ones((tot, 1)))
     df_all_w_ones = pd.concat([df_all, df_ones], axis=1)
@@ -226,7 +213,7 @@ def aggregate_pid_concept_counts_into_df(path=TRAIN_PATH, specific_concept_id_li
     df_all_summed = df_all_summed.rename(columns={df_all_summed.columns[1]: 'sum'})
     return df_all_summed
 
-def unpack_config_var(conf=DEFAULT_AGG_IMP_CONFIG):
+def unpack_config_var(conf=AGG_IMP_CONFIG):
     assert len(conf) == 3
     keys = tuple(conf.keys())
     assert keys[0] == 'count_impute_strat'
@@ -279,8 +266,7 @@ def get_unique_cid_list_from_TRAIN_and_EVAL(include_parsed_values):
     return concept_id_list
 
 def average_train_and_eval_cid_corr_series(unique_cid_set, train_corr_series, eval_corr_series):
-    # aggregate as list of (avg_correlation, concept_id) tuples
-    cid_tup_list = []
+    cid_tup_list = [] # list of (avg_correlation, concept_id) tuples
     for cid in unique_cid_set:
         if cid not in train_corr_series.index:
             cid_tup_list.append((eval_corr_series[cid], cid))
@@ -300,15 +286,27 @@ def get_normalized_df_from_df_all_summed(concept_feature_id_map, df_all_summed, 
     rows = df_all_summed.index.to_list()
     cols = df_all_summed.loc[:, 'concept_id'].apply(get_feature_id).to_list()
     vals = df_all_summed.loc[:, 'sum'].to_list()
+    remove_invalid_pid_entries_from_rows_cols_vals(rows, cols, vals, m)
     df_sparse = coo_matrix((vals, (rows, cols)), shape=(m, n))
     arr_dense = df_sparse.toarray()
     arr_imputed = impute_missing_data_univariate(arr_dense, missing_val=0.0, strategy=count_impute_strategy)
-    arr_norm = normalize(arr_imputed, axis=0, norm='max') # from: https://stackoverflow.com/a/44257532
+    arr_norm = normalize(arr_imputed, axis=0, norm='max')
     df_norm = pd.DataFrame(arr_norm)
     df_norm.index.name = 'person_id'
     # remove_all_zero_cols_from_df = lambda df: df.loc[:, (df != 0).any(axis=0)] # https://stackoverflow.com/a/21165116
     # df_norm = remove_all_zero_cols_from_df(df_norm)
     return df_norm
+
+def remove_invalid_pid_entries_from_rows_cols_vals(rows, cols, vals, pid_count):
+    i = 0
+    while i < len(rows):
+        assert len(rows) == len(cols) and len(cols) == len(vals)
+        if rows[i] >= pid_count:
+            del rows[i]
+            del cols[i]
+            del vals[i]
+            i -= 1
+        i += 1
 
 def add_parsed_df_to_df_all_summed(path, agg_imp_config, concept_id_list, m, pid_list, df_all_summed):
     parsed_df = get_parsed_values_df(path, agg_imp_config)
@@ -332,10 +330,11 @@ def add_parsed_df_to_df_all_summed(path, agg_imp_config, concept_id_list, m, pid
     return updated_df_all_summed
 
 def generate_first_half_of_parsed_values_df(rows, cols, vals, pid_list, val_impute_strategy):
-    concept_feature_map = get_concept_feature_id_map(specific_concept_id_list=cols)
+    concept_feature_map = get_concept_feature_id_map(specific_cid_list=cols)
     m = len(pid_list)
     n = len(concept_feature_map.keys())
     fids = [concept_feature_map[cid] for cid in cols]
+    remove_invalid_pid_entries_from_rows_cols_vals(rows, fids, vals, m)
     df_sparse = coo_matrix((vals, (rows, fids)), shape=(m, n))
     arr_dense = df_sparse.toarray()
     arr_imputed = impute_missing_data_univariate(arr_dense, missing_val=0.0, strategy=val_impute_strategy)
@@ -344,10 +343,11 @@ def generate_first_half_of_parsed_values_df(rows, cols, vals, pid_list, val_impu
     return first_half_df
 
 def generate_second_half_of_parsed_values_df(rows, cols, vals, pid_list):
-    second_concept_feature_map = get_concept_feature_id_map(specific_concept_id_list=cols)
+    second_concept_feature_map = get_concept_feature_id_map(specific_cid_list=cols)
     m = len(pid_list)
     n = len(second_concept_feature_map.keys())
     second_fids = [second_concept_feature_map[cid] for cid in cols]
+    remove_invalid_pid_entries_from_rows_cols_vals(rows, second_fids, vals, m)
     df_sparse = coo_matrix((vals, (rows, second_fids)), shape=(m, n))
     arr_dense = df_sparse.toarray()
     arr_second_half = normalize(arr_dense, axis=0, norm='max') # from: https://stackoverflow.com/a/44257532
@@ -441,12 +441,12 @@ def impute_missing_data_multivariate(X, missing_val=0.0, strategy='most_frequent
     X_new = imp.fit_transform(X)
     return X_new
 
-def generate_concept_summary(path=TRAIN_PATH, save_csv=False, specific_concept_id_list=None):
+def generate_concept_summary(path=TRAIN_PATH, save_csv=False, specific_cid_list=None):
     """
     Gets a summary of how frequently concept ids appear in the dataset as a DataFrame and/or csv
     NOTE: Unfortunately, this does not incorporate parsed values
     """
-    df_all = get_concept_pid_pairs_df(path, specific_concept_id_list)
+    df_all = get_concept_pid_pairs_df(path, specific_cid_list)
     df_all_summary = df_all.drop_duplicates(keep='first')\
         .groupby(['concept_id'])\
         .agg({'person_id': 'count'})\
@@ -456,6 +456,8 @@ def generate_concept_summary(path=TRAIN_PATH, save_csv=False, specific_concept_i
     add_concept_name_and_table_columns_to_df_all_summary(df_all_summary)
     df_avg_per_pid = get_avg_counts_per_pid_from_concept_pid_pairs_df(df_all)
     df_all_summary.insert(1, "avg_per_pid", df_avg_per_pid)
+    final_col_order = ['unique_pid_count', 'avg_per_pid', 'concept_name','from_table']
+    df_all_summary = df_all_summary[final_col_order]
     if save_csv:
         df_all_summary.to_csv(DATA_PATH + f'/concept_summary_{str(date.today())}.csv')
 
@@ -503,4 +505,72 @@ def get_avg_counts_per_pid_from_concept_pid_pairs_df(df_all):
         .reset_index()
     df_all_avg.columns = df_all_avg.columns.droplevel(level=[1,2]) # remove multiindex
     df_avg_per_pid = df_all_avg.loc[:, 'avg_per_pid']
+    df_avg_per_pid.index = df_all_avg.loc[:, 'concept_id']
     return df_avg_per_pid
+
+''' Command Line Tool '''
+def get_vars_based_on_cid_file_path(data_dir, cid_file_path, results_dir):
+    file_ext_is_dot_txt = lambda fn: fn[-4:] == '.txt'
+    timestamp = str(date.today())
+    data_dir_name = basename(data_dir)
+    if cid_file_path != None:
+        assert(file_ext_is_dot_txt(basename(cid_file_path)))
+        cid_filename_without_ext = basename(cid_file_path)[:-4]
+        cid_file = open(cid_file_path)
+        cid_list = [int(line) for line in cid_file]
+        df_base_path = results_dir + f'/{timestamp}_feature_df_FROM_{data_dir_name}_USING_{cid_filename_without_ext}'
+        cf_map_base_path = results_dir + f'/{timestamp}_cf_map_FROM_{data_dir_name}_USING_{cid_filename_without_ext}'
+    else:
+        cid_list = None
+        df_base_path = results_dir + f'/{timestamp}_feature_df_FROM_{data_dir_name}'
+        cf_map_base_path = results_dir + f'/{timestamp}_cf_map_FROM_{data_dir_name}'
+    return cid_list, df_base_path, cf_map_base_path
+
+def unpack_args_dict(args_dict):
+    data_dir = args_dict['data_dir']
+    results_dir = args_dict['results_dir']
+    cid_file_path = args_dict['cid_list_file']
+    use_corr = args_dict['order_cf_map_by_corr']
+    return data_dir, results_dir, cid_file_path, use_corr
+
+def run_etl_with_args_dict(args_dict):
+    data_dir, results_dir, cid_file_path, use_corr = unpack_args_dict(args_dict)
+    cid_list, df_base_path, cf_map_base_path = get_vars_based_on_cid_file_path(data_dir, cid_file_path, results_dir)
+
+    if use_corr == None:
+        cf_map = get_concept_feature_id_map(specific_path=data_dir, specific_cid_list=cid_list)
+    elif use_corr:
+        cf_map, _ = get_highest_corr_concept_feature_id_map_and_corr_series(specific_path=data_dir, specific_cid_list=cid_list)
+    feature_df = create_feature_df(cf_map, path=data_dir)
+    return feature_df, cf_map, df_base_path, cf_map_base_path
+
+def save_feature_df_and_cf_map_to_pickle_and_csv(feature_df, cf_map, df_base_path, cf_map_base_path):
+    df_pickle_filepath = df_base_path + '.pickle'
+    df_csv_filepath = df_base_path + '.csv'
+    cf_map_pickle_filepath = cf_map_base_path + '.pickle'
+    cf_map_csv_filepath = cf_map_base_path + '.csv'
+
+    pickle.dump(feature_df, open(df_pickle_filepath, 'wb'))
+    pickle.dump(cf_map, open(cf_map_pickle_filepath, 'wb'))
+
+    feature_df.to_csv(path_or_buf=df_csv_filepath)
+    cf_map_as_df = pd.DataFrame(cf_map.items())
+    cf_map_as_df.columns = ['concept_id', 'feature_id']
+    cf_map_as_df.to_csv(path_or_buf=cf_map_csv_filepath, index=False)
+    print(f"feature_df files saved to: {df_base_path}")
+    print(f"cf_map files saved to:     {cf_map_base_path}")
+
+if __name__ == '__main__':
+    import argparse
+    import pickle
+    from os.path import basename
+
+    parser = argparse.ArgumentParser(description='Converts OMOP-formatted csv files into feature DataFrame for training. Saves as pickle files and csvs to specified directory.')
+    parser.add_argument('--data_dir', type=str, required=True, help='Filepath to directory containing OMOP-formatted .csv files (e.g. "~/Documents/data_dir")')
+    parser.add_argument('--results_dir', type=str, required=True, help='Filepath to directory to save the output .pickle and .csv files (e.g. "~/Documents/results_dir")')
+    parser.add_argument('--cid_list_file', type=str, required=False, help='Filepath to .txt file with concept_ids to use (e.g. "~/Documents/data_dir/cid_list.txt")')
+    parser.add_argument('--order_cf_map_by_corr', type=bool, required=False, help='Set to True if you want the features in the concept_feature_id_map to be ordered by Pearson correlation.')
+    args_dict = vars(parser.parse_args())
+    
+    feature_df, cf_map, df_base_path, cf_map_base_path = run_etl_with_args_dict(args_dict)
+    save_feature_df_and_cf_map_to_pickle_and_csv(feature_df, cf_map, df_base_path, cf_map_base_path)
