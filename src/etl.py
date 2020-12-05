@@ -76,8 +76,8 @@ def get_concept_feature_id_map(specific_path=None, specific_cid_list=None, inclu
     else:
         if type(specific_cid_list) != list:
             raise TypeError(f"Error: concept_id_list needs to be a list, got: {type(concept_id_list)}")
-        concept_id_list = (dict.fromkeys(specific_cid_list)).keys() # from: https://stackoverflow.com/a/39835527
-    return {k: v for v, k in enumerate(concept_id_list)} # from: https://stackoverflow.com/a/36460020
+        concept_id_list = (dict.fromkeys(specific_cid_list)).keys() # https://stackoverflow.com/a/39835527
+    return get_val_to_idx_dict_from_list(concept_id_list)
 
 def get_highest_corr_concept_feature_id_map_and_corr_series(specific_path=None, specific_cid_list=None, keep_first_n=None, use_parsed_values=INCLUDE_PARSED_VALUES, agg_imp_config=AGG_IMP_CONFIG):
     """
@@ -109,19 +109,20 @@ def get_parsed_values_df(path=TRAIN_PATH, agg_imp_config=AGG_IMP_CONFIG):
     Resulting df is row-indexed by patient_id and column-indexed by ~concept_id~
     """
     _, val_aggregate_strategy, val_impute_strategy = unpack_config_var(agg_imp_config)
-    pid_list = get_unique_pid_list(path=path)
+    pid_list = get_unique_pid_list(path)
+    pid_to_row_map = get_val_to_idx_dict_from_list(pid_list)
     fn_to_df_dict = load_csvs_to_dataframe_dict(fn_list=['measurement.csv', 'observation.csv', 'person.csv'], path=path)
 
     rows, cols, vals = [], [], []
-    append_value_as_number_to_rows_cols_vals('measurement_concept_id', fn_to_df_dict['measurement.csv'], val_aggregate_strategy, rows, cols, vals)
-    append_value_as_number_to_rows_cols_vals('observation_concept_id', fn_to_df_dict['observation.csv'], val_aggregate_strategy, rows, cols, vals)
-    first_half_df = generate_first_half_of_parsed_values_df(rows, cols, vals, pid_list, val_impute_strategy) # from: https://stackoverflow.com/a/44257532
+    append_value_as_number_to_rows_cols_vals('measurement_concept_id', fn_to_df_dict['measurement.csv'], val_aggregate_strategy, rows, cols, vals, pid_to_row_map)
+    append_value_as_number_to_rows_cols_vals('observation_concept_id', fn_to_df_dict['observation.csv'], val_aggregate_strategy, rows, cols, vals, pid_to_row_map)
+    first_half_df = generate_first_half_of_parsed_values_df(rows, cols, vals, pid_list, val_impute_strategy)
 
     rows, cols, vals = [], [], []
-    append_value_as_concept_id_to_rows_cols_vals('measurement_concept_id', fn_to_df_dict['measurement.csv'], rows, cols, vals)
-    append_value_as_concept_id_to_rows_cols_vals('observation_concept_id', fn_to_df_dict['observation.csv'], rows, cols, vals)
-    append_abnormal_counts_to_rows_cols_vals(fn_to_df_dict, rows, cols, vals)
-    append_person_age_to_rows_cols_vals(fn_to_df_dict, rows, cols, vals)
+    append_value_as_concept_id_to_rows_cols_vals('measurement_concept_id', fn_to_df_dict['measurement.csv'], rows, cols, vals, pid_to_row_map)
+    append_value_as_concept_id_to_rows_cols_vals('observation_concept_id', fn_to_df_dict['observation.csv'], rows, cols, vals, pid_to_row_map)
+    append_abnormal_counts_to_rows_cols_vals(fn_to_df_dict, rows, cols, vals, pid_to_row_map)
+    append_person_age_to_rows_cols_vals(fn_to_df_dict, rows, cols, vals, pid_to_row_map)
     second_half_df = generate_second_half_of_parsed_values_df(rows, cols, vals, pid_list)
 
     merged_df = first_half_df.join(second_half_df)
@@ -131,7 +132,6 @@ def create_feature_df(concept_feature_id_map,  path=TRAIN_PATH, use_parsed_value
     """
     Generates the feature DataFrame of shape m x n, with m=len(pid_list) and n=# of features
         If a patient is missing a feature, the impute settings from agg_imp_config will be used
-        NOTE: if a feature column is only 0.0 values, it will be removed in the final df
     Resulting df is row-indexed by patient_id and column-indexed by ~feature_id~ from concept_feature_id_map
     """
     count_impute_strategy, _, _ = unpack_config_var(agg_imp_config)
@@ -140,24 +140,20 @@ def create_feature_df(concept_feature_id_map,  path=TRAIN_PATH, use_parsed_value
 
     concept_id_list = concept_feature_id_map.keys()
     pid_list = get_unique_pid_list(path)
+    pid_to_row_map = get_val_to_idx_dict_from_list(pid_list)
     m = len(pid_list)
     n = len(concept_id_list)
     df_all_summed = aggregate_pid_concept_counts_into_df(path, concept_id_list)
     if use_parsed_values:
         df_all_summed = add_parsed_df_to_df_all_summed(path, agg_imp_config, concept_id_list, m, pid_list, df_all_summed)
 
-    df_norm = get_normalized_df_from_df_all_summed(concept_feature_id_map, df_all_summed, m, n, count_impute_strategy)
+    df_norm = get_normalized_df_from_df_all_summed(concept_feature_id_map, df_all_summed, m, n, count_impute_strategy, pid_to_row_map)
     return df_norm
 
 ''' "Private" Functions '''
-def reverse_dict(d):
-    assert type(d) == dict
-    return {v:k for k,v in d.items()}
-
 def get_concept_list_and_corr_series_ordered_by_correlation(path, specific_cid_list=None, use_parsed_values=INCLUDE_PARSED_VALUES, agg_imp_config=AGG_IMP_CONFIG):
     """
     Gets list of concept ids and pd.Series of correlation magnitudes sorted by highest-correlation to "goldstandard.csv"
-    NOTE: this drops some concept_ids with N/A correlation value
     """
     concept_id_list = get_unique_cid_list(path, use_parsed_values) if specific_cid_list == None else specific_cid_list
     concept_feature_id_map = get_concept_feature_id_map(path, concept_id_list)
@@ -216,6 +212,13 @@ def aggregate_pid_concept_counts_into_df(path=TRAIN_PATH, specific_cid_list=None
     df_all_summed.columns = df_all_summed.columns.droplevel(level=[1]) # remove multiindex from aggregating
     df_all_summed = df_all_summed.rename(columns={df_all_summed.columns[1]: 'sum'})
     return df_all_summed
+
+def reverse_dict(d):
+    assert type(d) == dict
+    return {v:k for k,v in d.items()}
+
+def get_val_to_idx_dict_from_list(l):
+    return {val: idx for idx, val in enumerate(l)} # from: https://stackoverflow.com/a/36460020
 
 def unpack_config_var(conf=AGG_IMP_CONFIG):
     assert len(conf) == 3
@@ -285,9 +288,10 @@ def average_train_and_eval_cid_corr_series(unique_cid_set, train_corr_series, ev
     corr_series.index = concept_id_list
     return concept_id_list, corr_series
 
-def get_normalized_df_from_df_all_summed(concept_feature_id_map, df_all_summed, m, n, count_impute_strategy):
+def get_normalized_df_from_df_all_summed(concept_feature_id_map, df_all_summed, m, n, count_impute_strategy, pid_to_row_map):
     get_feature_id = lambda cid: concept_feature_id_map[cid]
-    rows = df_all_summed.index.to_list()
+    pid_list = df_all_summed.index.to_list()
+    rows = get_pid_rows_from_pid_list_and_row_map(pid_list, pid_to_row_map)
     cols = df_all_summed.loc[:, 'concept_id'].apply(get_feature_id).to_list()
     vals = df_all_summed.loc[:, 'sum'].to_list()
     remove_invalid_pid_entries_from_rows_cols_vals(rows, cols, vals, m)
@@ -296,6 +300,7 @@ def get_normalized_df_from_df_all_summed(concept_feature_id_map, df_all_summed, 
     arr_imputed = impute_missing_data_univariate(arr_dense, missing_val=0.0, strategy=count_impute_strategy)
     arr_norm = normalize(arr_imputed, axis=0, norm='max')
     df_norm = pd.DataFrame(arr_norm)
+    df_norm.index = pid_to_row_map.keys()
     df_norm.index.name = 'person_id'
     # remove_all_zero_cols_from_df = lambda df: df.loc[:, (df != 0).any(axis=0)] # https://stackoverflow.com/a/21165116
     # df_norm = remove_all_zero_cols_from_df(df_norm)
@@ -358,7 +363,7 @@ def generate_second_half_of_parsed_values_df(rows, cols, vals, pid_list):
     second_half_df = pd.DataFrame(arr_second_half, index=pid_list, columns=list(second_concept_feature_map.keys()), dtype=float)
     return second_half_df
 
-def append_person_age_to_rows_cols_vals(fn_to_df_dict, rows, cols, vals):
+def append_person_age_to_rows_cols_vals(fn_to_df_dict, rows, cols, vals, pid_to_row_map):
     # NOTE: For model consistency, hard-coding ref date as 12-31-2020 (as opposed to dynamically getting date)
     str_format = '%Y-%m-%d'
     ref_date = datetime.strptime('2020-12-31', str_format)
@@ -366,18 +371,21 @@ def append_person_age_to_rows_cols_vals(fn_to_df_dict, rows, cols, vals):
     df_ppl = fn_to_df_dict['person.csv'][['person_id', 'birth_datetime']]
     df_age = df_ppl['birth_datetime'].apply(get_age_from_birthday_in_days)
     pid_list = df_ppl.loc[:, 'person_id'].tolist()
-    rows += pid_list
+    pid_rows = get_pid_rows_from_pid_list_and_row_map(pid_list, pid_to_row_map)
+    rows += pid_rows
     cols += [1234567891011] * len(pid_list) # using random number as age concept_id (1234567891011)
     vals += df_age.tolist()
 
-def append_abnormal_counts_to_rows_cols_vals(fn_to_df_dict, rows, cols, vals):
+def append_abnormal_counts_to_rows_cols_vals(fn_to_df_dict, rows, cols, vals, pid_to_row_map):
     df_abn = fn_to_df_dict['measurement.csv'][['person_id', 'measurement_concept_id', 'value_as_number', 'range_low', 'range_high']]
     df_abn.insert(2, "abnormal_count", df_abn.iloc[:, 2:].apply(convert_formatted_row_to_abonrmal_value_count, axis=1), True)
     df_abn = df_abn.iloc[:, :3]
     df_abn_grouped = df_abn.groupby(['person_id', 'measurement_concept_id']).agg(['sum'])
     df_abn_grouped.columns = list(map('_'.join, df_abn_grouped.columns.values)) # https://stackoverflow.com/a/26325610
     df_abn_grouped = df_abn_grouped.reset_index()
-    rows += df_abn_grouped.loc[:, 'person_id'].tolist()
+    pid_list = df_abn_grouped.loc[:, 'person_id'].tolist()
+    pid_rows = get_pid_rows_from_pid_list_and_row_map(pid_list, pid_to_row_map)
+    rows += pid_rows
     cols += [pad_digits(cid, digit='1') for cid in df_abn_grouped.loc[:, 'measurement_concept_id'].tolist()]
     vals += df_abn_grouped.loc[:, 'abnormal_count_sum'].tolist()
 
@@ -405,7 +413,7 @@ def concat_ints_from_lists_element_wise(first_list, second_list):
     res = [first_list[i] + second_list[i] for i in range(len(first_list))]
     return [int(v) for v in res]
 
-def append_value_as_concept_id_to_rows_cols_vals(concept_id_name, table_df, rows, cols, vals):
+def append_value_as_concept_id_to_rows_cols_vals(concept_id_name, table_df, rows, cols, vals, pid_to_row_map):
     vals_df = table_df[['person_id', concept_id_name, 'value_as_concept_id']].dropna()
     vals_df['new_concept_id'] = concat_ints_from_lists_element_wise(vals_df[concept_id_name].tolist(), vals_df['value_as_concept_id'].tolist())
     vals_df = vals_df.reset_index(drop=True)
@@ -416,11 +424,13 @@ def append_value_as_concept_id_to_rows_cols_vals(concept_id_name, table_df, rows
         .agg(['sum'])
     df_grouped.columns = list(map('_'.join, df_grouped.columns.values)) # https://stackoverflow.com/a/26325610
     df_grouped = df_grouped.reset_index()
+    pid_list = df_grouped.loc[:, 'person_id'].tolist()
+    pid_rows = get_pid_rows_from_pid_list_and_row_map(pid_list, pid_to_row_map)
     rows += df_grouped.loc[:, 'person_id'].tolist()
     cols += df_grouped.loc[:, 'new_concept_id'].tolist()
     vals += df_grouped.loc[:, 'count_sum'].tolist()
 
-def append_value_as_number_to_rows_cols_vals(concept_id_name, table_df, val_aggregate_strategy, rows, cols, vals):
+def append_value_as_number_to_rows_cols_vals(concept_id_name, table_df, val_aggregate_strategy, rows, cols, vals, pid_to_row_map):
     floor = 1 # used to ensure 0.0 values in data are preserved. Floor gets normalized at the end so no biggie
     vals_df = table_df[['person_id', concept_id_name, 'value_as_number']].dropna()
     vals_df['value_as_number'] = vals_df['value_as_number'].apply(lambda v: v + floor) 
@@ -429,9 +439,20 @@ def append_value_as_number_to_rows_cols_vals(concept_id_name, table_df, val_aggr
     df_grouped.columns = list(map('_'.join, df_grouped.columns.values)) # https://stackoverflow.com/a/26325610
     df_grouped = df_grouped.reset_index()
     df_grouped.loc[:, concept_id_name] = df_grouped.loc[:, concept_id_name].apply(pad_digits)
-    rows += df_grouped.loc[:, 'person_id'].tolist()
+    pid_list = df_grouped.loc[:, 'person_id'].tolist()
+    pid_rows = get_pid_rows_from_pid_list_and_row_map(pid_list, pid_to_row_map)
+    rows += pid_rows
     cols += df_grouped.loc[:, concept_id_name].tolist()
     vals += df_grouped.loc[:, 'value_as_number_' + val_aggregate_strategy].tolist()
+
+def get_pid_rows_from_pid_list_and_row_map(pid_list, pid_to_row_map):
+    pid_rows = []
+    for pid in pid_list:
+        if pid not in pid_to_row_map.keys():
+            pid_rows.append(float('inf')) # this gets filtered-out in: remove_invalid_pid_entries_from_rows_cols_vals
+        else:
+            pid_rows.append(pid_to_row_map[pid])
+    return pid_rows
 
 ''' "Deprecated" Functions '''
 def impute_missing_data_multivariate(X, missing_val=0.0, strategy='most_frequent', max_iter=5):
