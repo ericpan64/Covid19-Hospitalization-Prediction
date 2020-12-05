@@ -1,4 +1,4 @@
 
 #!/usr/bin/env bash
-
-python /app/infer.py
+USE_PCA='False'
+python3 /app/infer.py --use_pca $USE_PCA

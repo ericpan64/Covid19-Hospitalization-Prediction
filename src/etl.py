@@ -150,6 +150,10 @@ def create_feature_df(concept_feature_id_map,  path=TRAIN_PATH, use_parsed_value
     return df_norm
 
 ''' "Private" Functions '''
+def reverse_dict(d):
+    assert type(d) == dict
+    return {v:k for k,v in d.items()}
+
 def get_concept_list_and_corr_series_ordered_by_correlation(path, specific_cid_list=None, use_parsed_values=INCLUDE_PARSED_VALUES, agg_imp_config=AGG_IMP_CONFIG):
     """
     Gets list of concept ids and pd.Series of correlation magnitudes sorted by highest-correlation to "goldstandard.csv"
@@ -254,7 +258,7 @@ def impute_missing_data_univariate(X, missing_val=0.0, strategy='most_frequent')
     return X_new
 
 def convert_from_fids_to_cids(concept_feature_id_map, sorted_feature_ids, corr_series):
-    fid_to_cid_map = {v:k for k, v in concept_feature_id_map.items()}
+    fid_to_cid_map = reverse_dict(concept_feature_id_map)
     sorted_concept_ids = [fid_to_cid_map[fid] for fid in sorted_feature_ids]
     cid_idx_list = [fid_to_cid_map[fid] for fid in list(corr_series.index)]
     return sorted_concept_ids, pd.Index(cid_idx_list)
@@ -510,6 +514,7 @@ def get_avg_counts_per_pid_from_concept_pid_pairs_df(df_all):
 
 ''' Command Line Tool '''
 def get_vars_based_on_cid_file_path(data_dir, cid_file_path, results_dir):
+    from os.path import basename
     file_ext_is_dot_txt = lambda fn: fn[-4:] == '.txt'
     timestamp = str(date.today())
     data_dir_name = basename(data_dir)
@@ -563,7 +568,6 @@ def save_feature_df_and_cf_map_to_pickle_and_csv(feature_df, cf_map, df_base_pat
 if __name__ == '__main__':
     import argparse
     import pickle
-    from os.path import basename
 
     parser = argparse.ArgumentParser(description='Converts OMOP-formatted csv files into feature DataFrame for training. Saves as pickle files and csvs to specified directory.')
     parser.add_argument('--data_dir', type=str, required=True, help='Filepath to directory containing OMOP-formatted .csv files (e.g. "~/Documents/data_dir")')

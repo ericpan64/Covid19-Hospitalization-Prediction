@@ -62,5 +62,11 @@ def prediction(X_test):
     print("Inferring stage finished", flush = True)
 
 if __name__ == "__main__":
-    X = prepare_data(use_pca=False)
+    import argparse
+    parser = argparse.ArgumentParser(description='Performs inference and generates predictions to: /output/predictions.csv')
+    parser.add_argument('--use_pca', type=bool, required=False, help='Set to True to expect PCA before model training')
+    args_dict = vars(parser.parse_args())
+    use_pca = args_dict['use_pca']
+
+    X = prepare_data(use_pca=use_pca)
     prediction(X)
