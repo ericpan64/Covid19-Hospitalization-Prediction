@@ -75,12 +75,14 @@ class TestFeatureETL(unittest.TestCase):
         ids_in_first_are_superset_of_second = lambda x, y: set(x).issuperset(set(y))
         dfs_have_same_indices = lambda dfa, dfb: (dfa.index == dfb.index).all()
         dfs_are_equal_on_given_columns = lambda dfa, dfb, col: dfa[col].equals(dfb[col])
-        
+                
         for path in PATHS:
             cf_map, corr_series_from_mapfn = etl.get_highest_corr_concept_feature_id_map_and_corr_series(path, agg_imp_config=conf)
             cid_list, corr_series_from_listfn = etl.get_concept_list_and_corr_series_ordered_by_correlation(path, agg_imp_config=conf)
+            unsorted_cf_map = etl.get_concept_feature_id_map(specific_path=path)
             self.assertTrue(sorted_objects_are_equal(corr_series_from_mapfn, corr_series_from_listfn))
             self.assertTrue(sorted_objects_are_equal(cid_list, list(cf_map.keys())))
+            self.assertTrue(sorted_objects_are_equal(cf_map.keys(), unsorted_cf_map.keys()))
 
             parsed_df = etl.get_parsed_values_df(path=path, agg_imp_config=conf)
             full_df = etl.create_feature_df(cf_map, path=path, agg_imp_config=conf, use_parsed_values=True)
@@ -101,7 +103,7 @@ class TestFeatureETL(unittest.TestCase):
             orig_features = [cf_map[cid] for cid in orig_concepts]
             parsed_features_in_tot = [cf_map[cid] for cid in parsed_concepts_in_tot]
             parsed_part_of_full_df = full_df[parsed_features_in_tot]
-            
+
             parsed_part_of_full_df.columns = parsed_df[parsed_concepts_in_tot].columns
             self.assertTrue(dfs_are_equal_on_given_columns(full_df, orig_df, orig_features))
             self.assertTrue(dfs_are_equal_on_given_columns(parsed_part_of_full_df, parsed_df, parsed_concepts_in_tot))
