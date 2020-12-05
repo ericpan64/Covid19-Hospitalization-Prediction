@@ -41,10 +41,10 @@ def prepare_data(import_specific_id_list=False, use_pca=False):
         print("\nUtilizing Custom Feature List")
         with open("/model/CustomIdList.txt", "r") as feature_list:
             features = [int(line.rstrip('\n')) for line in feature_list]
-        concept_feature_id_map_train_set = get_concept_feature_id_map(specific_path=TRAIN_PATH, specific_concept_id_list=features, include_parsed_values=True)
+        concept_feature_id_map_train_set = get_concept_feature_id_map(specific_path=TRAIN_PATH, specific_cid_list=features, include_parsed_values=True)
     else:
         #Utilize all features in data
-        concept_feature_id_map_train_set = get_concept_feature_id_map(specific_path=TRAIN_PATH, specific_concept_id_list=None, include_parsed_values=True)
+        concept_feature_id_map_train_set = get_concept_feature_id_map(specific_path=TRAIN_PATH, specific_cid_list=None, include_parsed_values=True)
 
     #Save list of features for use in eval set
     dump(concept_feature_id_map_train_set, '/model/feature_dict.pickle')
