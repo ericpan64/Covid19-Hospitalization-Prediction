@@ -245,6 +245,7 @@ def get_normalized_df_from_df_all_summed(concept_feature_id_map, df_all_summed, 
     rows = df_all_summed.index.to_list()
     cols = df_all_summed.loc[:, 'concept_id'].apply(get_feature_id).to_list()
     vals = df_all_summed.loc[:, 'sum'].to_list()
+    remove_invalid_pid_entries_from_rows_cols_vals(rows, cols, vals, m)
     df_sparse = coo_matrix((vals, (rows, cols)), shape=(m, n))
     arr_dense = df_sparse.toarray()
     arr_imputed = impute_missing_data_univariate(arr_dense, missing_val=0.0, strategy=count_impute_strategy)
@@ -254,6 +255,17 @@ def get_normalized_df_from_df_all_summed(concept_feature_id_map, df_all_summed, 
     # remove_all_zero_cols_from_df = lambda df: df.loc[:, (df != 0).any(axis=0)] # https://stackoverflow.com/a/21165116
     # df_norm = remove_all_zero_cols_from_df(df_norm)
     return df_norm
+
+def remove_invalid_pid_entries_from_rows_cols_vals(rows, cols, vals, pid_count):
+    i = 0
+    while i < len(rows):
+        assert len(rows) == len(cols) and len(cols) == len(vals)
+        if rows[i] >= pid_count:
+            del rows[i]
+            del cols[i]
+            del vals[i]
+            i -= 1
+        i += 1
 
 def add_parsed_df_to_df_all_summed(path, agg_imp_config, concept_id_list, m, pid_list, df_all_summed):
     parsed_df = get_parsed_values_df(path, agg_imp_config)
@@ -281,6 +293,7 @@ def generate_first_half_of_parsed_values_df(rows, cols, vals, pid_list, val_impu
     m = len(pid_list)
     n = len(concept_feature_map.keys())
     fids = [concept_feature_map[cid] for cid in cols]
+    remove_invalid_pid_entries_from_rows_cols_vals(rows, fids, vals, m)
     df_sparse = coo_matrix((vals, (rows, fids)), shape=(m, n))
     arr_dense = df_sparse.toarray()
     arr_imputed = impute_missing_data_univariate(arr_dense, missing_val=0.0, strategy=val_impute_strategy)
@@ -293,6 +306,7 @@ def generate_second_half_of_parsed_values_df(rows, cols, vals, pid_list):
     m = len(pid_list)
     n = len(second_concept_feature_map.keys())
     second_fids = [second_concept_feature_map[cid] for cid in cols]
+    remove_invalid_pid_entries_from_rows_cols_vals(rows, second_fids, vals, m)
     df_sparse = coo_matrix((vals, (rows, second_fids)), shape=(m, n))
     arr_dense = df_sparse.toarray()
     arr_second_half = normalize(arr_dense, axis=0, norm='max') # from: https://stackoverflow.com/a/44257532
