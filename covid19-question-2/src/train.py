@@ -10,43 +10,18 @@ from sklearn.preprocessing import MinMaxScaler
 from sklearn.model_selection import GridSearchCV
 '''for saving models'''
 from joblib import dump
+from simple_etl import *
+import sklearn.decomposition as skdc
+import sklearn.pipeline as skpl
+import pickle as pk
 
-def add_COVID_measurement_date():
-    measurement = pd.read_csv("/data/measurement.csv",usecols =['person_id','measurement_date','measurement_concept_id','value_as_concept_id'])
-    measurement = measurement.loc[measurement['measurement_concept_id']==706163]
-    measurement['value_as_concept_id'] = measurement['value_as_concept_id'].astype(int)
-    measurement = measurement.loc[(measurement['value_as_concept_id']==45877985.0) | (measurement['value_as_concept_id']==45884084.0)]
-    measurement = measurement.sort_values(['measurement_date'],ascending=False).groupby('person_id').head(1)
-    covid_measurement = measurement[['person_id','measurement_date']]
-    return covid_measurement
+docker = 1
+TRAIN_PATH = '../synthetic_data/training/' # should be "/data/" for docker.
+MODEL_PATH = '../model/' # should be "/model/" for docker.
 
-def add_demographic_data(covid_measurement):
-    '''add demographic data including age, gender and race'''
-    person = pd.read_csv('/data/person.csv',usecols = ['person_id','gender_concept_id','year_of_birth','race_concept_id'])
-    demo = pd.merge(covid_measurement,person,on=['person_id'], how='inner')
-    demo['measurement_date'] = pd.to_datetime(demo['measurement_date'], format='%Y-%m-%d')
-    demo['year_of_birth'] = pd.to_datetime(demo['year_of_birth'], format='%Y')
-    demo['age'] = demo['measurement_date'] - demo['year_of_birth']
-    demo['age'] = demo['age'].apply(lambda x: x.days/365.25)
-    print("patients' ages are calculated", flush = True)
-    person["count"] = 1
-    gender = person.pivot(index = "person_id", columns="gender_concept_id", values="count")
-    gender.reset_index(inplace = True)
-    gender.fillna(0,inplace = True)
-    race = person.pivot(index ="person_id", columns="race_concept_id", values="count")
-    race.reset_index(inplace = True)
-    race.fillna(0,inplace = True)
-    race = race[['person_id', 8516, 8515, 8527, 8552]]
-    gender = gender[['person_id',8532]]
-    print("patients' gender and race information are added", flush = True)
-    scaler = MinMaxScaler(feature_range = (0, 1), copy = True)
-    scaled_column = scaler.fit_transform(demo[['age']])
-    demo = pd.concat([demo, pd.DataFrame(scaled_column,columns = ['scaled_age'])],axis=1)
-    predictors = demo[['person_id','scaled_age']]
-    predictors = predictors.merge(gender, on = ['person_id'], how = 'left')
-    predictors = predictors.merge(race, on = ['person_id'], how = 'left')
-    predictors.fillna(0,inplace = True)
-    return predictors
+if docker == 1:
+    TRAIN_PATH = '/data/'
+    MODEL_PATH = '/model/'
 
 def logit_model(predictors):
     '''
@@ -54,21 +29,32 @@ def logit_model(predictors):
     '''
     X = predictors.drop(['person_id'], axis = 1)
     #features = X.columns.values
-    gs = pd.read_csv('/data/goldstandard.csv')
+    gs = pd.read_csv(TRAIN_PATH+'goldstandard.csv')
     result = predictors.merge(gs,on = ['person_id'], how ='left')
     result.fillna(0,inplace = True)
     X = np.array(X)
     Y = np.array(result[['status']]).ravel()
+    pca = skdc.PCA(n_components = 10)
+    X = pca.fit_transform(X)
+    pk.dump(pca, open(MODEL_PATH + "pca.pkl","wb"))
     clf = LogisticRegressionCV(cv = 5, penalty = 'l2', tol = 0.0001, fit_intercept = True, intercept_scaling = 1, class_weight = None, random_state = None,
-    max_iter = 100, verbose = 0, n_jobs = None).fit(X,Y)
-    dump(clf, '/model/baseline.joblib')
+    max_iter = 100, verbose = 0, n_jobs = None)
+    model = clf.fit(X,Y)
+    dump(model, MODEL_PATH + 'baseline.joblib')
     print("Training stage finished", flush = True)
 
 if __name__ == '__main__':
 
     # ETL and preprocessing. Note that it should read data from /app, which is the volume of the docker image.
-    covid_measurement = add_COVID_measurement_date()
-    predictors = add_demographic_data(covid_measurement)
+    #covid_measurement = add_COVID_measurement_date()
+    #predictors = add_demographic_data(covid_measurement)
 
-    # train the model and save it to the /model folder. 
+    predictors = get_features_from_list()
+
+    # save predictor to a list
+    save_ids(MODEL_PATH + 'predictor_ids.txt', predictors.columns.values[1:])
+
+    # train the model and save it to the /model folder.
     logit_model(predictors)
+
+

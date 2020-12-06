@@ -1,4 +1,4 @@
-FROM python:3.5
+FROM python:3.8
 
 # Do not change
 LABEL challenge="covid19"
@@ -11,7 +11,7 @@ LABEL description="hospitalization  baseline prediction"
 
 # Comma-separated list of arbitrary feature names used by the model in desc
 # order of importance.
-LABEL ranked_features="age,gender,race"
+LABEL ranked_features="NLP features"
 
 # Comma-separated list of references (URL)
 LABEL references=""
@@ -30,11 +30,12 @@ WORKDIR /app
 # Copy our python program for training and inference
 COPY src/train.py .
 COPY src/infer.py .
+COPY src/idlist.txt .
+COPY src/simple_etl.py .
 
 # Copy Bash scripts expected by the IT infrastructure of the EHR DREAM Challenge
 COPY train.sh .
 COPY infer.sh .
-
 
 # Add executable permission to Bash scripts
 RUN chmod +x train.sh

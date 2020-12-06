@@ -15,11 +15,22 @@ from sklearn.metrics import precision_recall_curve
 from sklearn.preprocessing import MinMaxScaler
 '''for saving models'''
 from joblib import load
+from simple_etl import *
+import sklearn.decomposition as skdc
+import pickle as pk
 
+docker = 1
+EVAL_PATH = '../synthetic_data/evaluation/' # should be "/data/" for docker.
+MODEL_PATH = '../model/' # should be "/model/" for docker.
+OUTPUT_PATH = '../output/'
 
+if docker == 1: 
+    EVAL_PATH = '/data/'
+    MODEL_PATH = '/model/'
+    OUTPUT_PATH = '/output/'
 
 def add_COVID_measurement_date():
-    measurement = pd.read_csv("/data/measurement.csv",usecols =['person_id','measurement_date','measurement_concept_id','value_as_concept_id'])
+    measurement = pd.read_csv(EVAL_PATH + "measurement.csv",usecols =['person_id','measurement_date','measurement_concept_id','value_as_concept_id'])
     measurement = measurement.loc[measurement['measurement_concept_id']==706163]
     measurement = measurement.loc[(measurement['value_as_concept_id']==45877985)|(measurement['value_as_concept_id']==45884084)]
     measurement = measurement.sort_values(['measurement_date'],ascending=False).groupby('person_id').head(1)
@@ -28,7 +39,7 @@ def add_COVID_measurement_date():
 
 def add_demographic_data(covid_measurement):
     '''add demographic data including age, gender and race'''
-    person = pd.read_csv('/data/person.csv',usecols = ['person_id','gender_concept_id','year_of_birth','race_concept_id'])
+    person = pd.read_csv(EVAL_PATH  + 'person.csv',usecols = ['person_id','gender_concept_id','year_of_birth','race_concept_id'])
     demo = pd.merge(covid_measurement,person,on=['person_id'], how='inner')
     demo['measurement_date'] = pd.to_datetime(demo['measurement_date'], format='%Y-%m-%d')
     demo['year_of_birth'] = pd.to_datetime(demo['year_of_birth'], format='%Y')
@@ -44,7 +55,7 @@ def add_demographic_data(covid_measurement):
     race.fillna(0,inplace = True)
     race = race[['person_id', 8516, 8515, 8527, 8552]]
     gender = gender[['person_id',8532]]
-    print("patients' gender and race information are added", flush = True)
+    print("patients gender and race information are added", flush = True)
     scaler = MinMaxScaler(feature_range = (0, 1), copy = True)
     scaled_column = scaler.fit_transform(demo[['age']])
     demo = pd.concat([demo, pd.DataFrame(scaled_column,columns = ['scaled_age'])],axis=1)
@@ -55,20 +66,27 @@ def add_demographic_data(covid_measurement):
     return predictors
 
 def prediction(predictors):
-    clf = load('/model/baseline.joblib')
+    clf = load(MODEL_PATH + 'baseline.joblib')
     X = predictors.drop(['person_id'], axis = 1)
+    # PCA transform
+    pca_reload = pk.load(open(MODEL_PATH + "pca.pkl",'rb'))
+    X = pca_reload.transform(X)
+
     Y_pred = clf.predict_proba(X)[:,1]
     output = pd.DataFrame(Y_pred,columns = ['score'])
     person_id = predictors.person_id
-    person = pd.read_csv('/data/person.csv',usecols =['person_id'])
+    person = pd.read_csv(EVAL_PATH + 'person.csv',usecols =['person_id'])
     output_prob = pd.concat([person_id,output],axis = 1)
     output_prob.columns = ["person_id", "score"]
     output_prob = person.merge(output_prob, on = ['person_id'], how = 'left')
     output_prob = output_prob.fillna(0)
-    output_prob.to_csv('/output/predictions.csv', index = False)
+    output_prob.to_csv(OUTPUT_PATH+'predictions.csv', index = False)
     print("Inferring stage finished", flush = True)
 
 if __name__ == '__main__':
-    covid_measurement = add_COVID_measurement_date()
-    predictors = add_demographic_data(covid_measurement)
+    #covid_measurement = add_COVID_measurement_date()
+    #predictors = add_demographic_data(covid_measurement)
+    predictors = get_features_from_list(True)
+    idSet = get_id_from_train()
+    predictors = add_additional_concepts(predictors, idSet)
     prediction(predictors)
