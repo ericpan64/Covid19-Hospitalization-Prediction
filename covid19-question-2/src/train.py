@@ -34,10 +34,10 @@ def logit_model(predictors):
     result.fillna(0,inplace = True)
     X = np.array(X)
     Y = np.array(result[['status']]).ravel()
-    pca = skdc.PCA(n_components = 10)
+    pca = skdc.PCA(n_components = 0.8)
     X = pca.fit_transform(X)
     pk.dump(pca, open(MODEL_PATH + "pca.pkl","wb"))
-    clf = LogisticRegressionCV(cv = 5, penalty = 'l2', tol = 0.0001, fit_intercept = True, intercept_scaling = 1, class_weight = None, random_state = None,
+    clf = LogisticRegressionCV(cv = 10, penalty = 'l2', tol = 0.0001, fit_intercept = True, intercept_scaling = 1, class_weight = None, random_state = None,
     max_iter = 100, verbose = 0, n_jobs = None)
     model = clf.fit(X,Y)
     dump(model, MODEL_PATH + 'baseline.joblib')
@@ -56,5 +56,3 @@ if __name__ == '__main__':
 
     # train the model and save it to the /model folder.
     logit_model(predictors)
-
-
