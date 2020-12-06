@@ -1,54 +1,9 @@
-<<<<<<< HEAD
-# C19-Hospitalization-Likelihood
-Here we present a framework to generate hospitalization likelihood for COVID-positive patients within 21 days of test result. 
-
-This is part of the COVID-19 DREAM challenge (specifically [Question 2](https://www.synapse.org/#!Synapse:syn21849255/wiki/602406)).
-
-## Problem Overview
-Input: [OMOP-based](https://github.com/OHDSI/CommonDataModel/wiki) patient dataset
-Output: Prediction scores (between 0 and 1) for each patient representing likelihood of hospitalization within 21 days of a positive COVID test
-Motivation: Accurately predicting patients with high risk for complications can improve medical scheduling and triage for scarse resources
-
-## Framework Overview
-This project uses PySpark for performing feature engineering on the datasets and then applies Logistic Regression to generate the final score. A separate NLP-analysis is used in evaluating novel features (outlined in [Feature Engineering](#FeatureEngineering) section).
-
-### Dataset Analysis
-- Overview of available columns, getting familiar with the data
-
-### Feature Engineering
-- Technical formatting into features
-- Feature filtering for independence
-- NLP Sub-Component: CORD dataset to identify predictive features
-
-### ML Models
-- Logistic Regression
-
-### Model Evaluation
-- AUPR, AUROC, balanced accuracy
-
-## Links
-- [DREAM Challenge Q2 Reference](https://www.synapse.org/#!Synapse:syn21849255/wiki/602406)
-- [OMOP Data Model Wiki](https://github.com/OHDSI/CommonDataModel/wiki)
-=======
-# Model for COVID-19 DREAM Challenge: Question 2
-
-## Overview
-
-Here we describe how to build and run locally an example model provided for Challenge Question 2 of the [COVID-19 DREAM Challenge](https://www.synapse.org/#!Synapse:syn18404605). The goal of this continuous benchmarking project is to develop models that take as input the electronic health records (EHRs) of a patient and outputs the probability of a COVID-19-positive patient to be hospitalized within 21 day after his/her recent COVID-measurement.
-
-## Description of the model
-
-This model takes all features in the data set. First, we generate a feature set for each patient in the `/data` folder using the features and then we apply a 10-fold cross-validation model of choice [Logistic Regression, Support Vector Machine, Random Forest] on the feature set. Once the model is trained, we save the model file in the `/model`folder.
-
-During the inference stage, we create a feature matrix using the same set of demographics features. Then we load the trained model and apply the model on the feature matrix to generate a prediction file as `/output/predictions.csv`
-
-
 
 ## Dockerize the model
 
-1. Start by cloning this repository.
+For this example, the container name ```awesome-covid19-q2-model``` is used (this can be arbitrarily updated).
 
-2. Build the Docker image that will contain the move with the following command:
+1. Build the Docker image that will contain the move with the following command:
 
     ```bash
     docker build -t awesome-covid19-q2-model:v1 .
@@ -111,7 +66,7 @@ During the inference stage, we create a feature matrix using the same set of dem
 
 ## Submit this model to the COVID-19 DREAM Challenge
 
-This model meets the requirements (As of Dec 2020) for models to be submitted to Question 2 of the COVID-19 DREAM Challenge. Please see [this page](https://www.synapse.org/#!Synapse:syn21849255/wiki/602419) for updated requirements on how to submit this model.
+This model meets the requirements (as of Dec 2020) for models to be submitted to Question 2 of the COVID-19 DREAM Challenge. Please see [this page](https://www.synapse.org/#!Synapse:syn21849255/wiki/602419) for updated requirements on how to submit this model.
 
 
 ## Pushing Model to Synapse
@@ -150,4 +105,3 @@ In short
 ## What happened after submission
 
 The two docker commands you ran earlier will be run on the DREAM platform, this time with the real EHR data instead of synthetic data. You will get an email then to 
->>>>>>> 8b57cb2f6f6a8c8aeea8165632fe28b667ad534b
