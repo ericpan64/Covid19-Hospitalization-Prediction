@@ -20,6 +20,48 @@ This model takes all features in the data set. First, we generate a feature set 
 
 During the inference stage, we create a feature matrix using the same set of demographics features. Then we load the trained model and apply the model on the feature matrix to generate a prediction file as `/output/predictions.csv`
 
-## Model Usage Details
 
-The instructions to run and submit the model are provided in [SUBMISSION_INSTRUCTIONS.md](SUBMISSION_INSTRUCTIONS.md)
+## Run the model locally on synthetic EHR data
+
+1. Download the repository and build the Docker image. The model results will be run on the [synthetic_data](/synthetic_data) folder. For this example, the container name ```awesome-covid19-q2-model``` is arbitrarily used.
+
+    ```bash
+    docker build -t awesome-covid19-q2-model:v1 .
+    ```
+
+2. Run the dockerized model to train on the patients in the training dataset.
+
+    ```bash
+    docker run \
+        -v $(pwd)/synthetic_data/training:/data:ro \
+        -v $(pwd)/output:/output:rw \
+        -v $(pwd)/scratch:/scratch:rw \
+        -v $(pwd)/model:/model:rw \
+        awesome-covid19-q2-model:v1 bash /app/train.sh
+    ```
+
+3. Run the trained model on evaluation dataset and generate the prediction file.
+
+    ```bash
+    docker run \
+        -v $(pwd)/synthetic_data/evaluation:/data:ro \
+        -v $(pwd)/output:/output:rw \
+        -v $(pwd)/scratch:/scratch:rw \
+        -v $(pwd)/model:/model:rw \
+        awesome-covid19-q2-model:v1 bash /app/infer.sh
+    ```
+
+4. The predictions generated are saved to `/output/predictions.csv`. The column `person_id` includes the ID of the patient and the column `score` the probability for the COVID-19-positive patient to be hospitalized within 21 days after the latest COVID test.
+
+    ```text
+    $ cat output/predictions.csv
+    person_id,score
+    0,0.6153846153846154
+    1,0.5384615384615384
+    2,0.5384615384615384
+    3,0.3076923076923077
+    ...
+    ```
+
+## Model Submission
+The instructions to submit the model are provided in [SUBMISSION_INSTRUCTIONS.md](SUBMISSION_INSTRUCTIONS.md)
