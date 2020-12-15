@@ -7,7 +7,7 @@ from scipy.sparse import coo_matrix
 from datetime import date, datetime
 
 ''' ETL Config Variables '''
-DATA_PATH = '../data/DREAM_data'  # path running from inside src folder
+DATA_PATH = '../synthetic_data'
 TRAIN_PATH = DATA_PATH + '/training'
 EVAL_PATH = DATA_PATH + '/evaluation'
 FILENAME_LIST = ['condition_occurrence.csv', 'device_exposure.csv', 'goldstandard.csv', 
