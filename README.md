@@ -3,7 +3,7 @@
 
 Here we (Eric, Mohammad, Santina) present a framework to generate hospitalization likelihood for COVID-positive patients within 21 days of test result. 
 
-This project is part of the COVID-19 DREAM challenge (specifically [Question 2](https://www.synapse.org/#!Synapse:syn21849255/wiki/602406)) and came together while taking Georgia Tech's [OMSCS 6250: Big Data for Health](https://omscs.gatech.edu/cse-8803-special-topics-big-data-for-health-informatics) class. In addition to using the data provided in the DREAM challenge, we incorporate an NLP-based analysis on the separate open-source [CORD-19 dataset](https://www.kaggle.com/allen-institute-for-ai/CORD-19-research-challenge) and use it to guide feature selection. Overall, incorporating the NLP component without filtering did not improve the results locally, however after filtering we were able to consistetly finish in the top 10 submissions based on AUPR and AUROC (ranking as-of the 11-11-2020 dataset, leaderboard linked [here]((https://www.synapse.org/#!Synapse:syn21849255/wiki/605131)).
+This project is part of the COVID-19 DREAM challenge (specifically [Question 2](https://www.synapse.org/#!Synapse:syn21849255/wiki/602406)) and came together while taking Georgia Tech's [OMSCS 6250: Big Data for Health](https://omscs.gatech.edu/cse-8803-special-topics-big-data-for-health-informatics) class. In addition to using the data provided in the DREAM challenge, we incorporate an NLP-based analysis on the separate open-source [CORD-19 dataset](https://www.kaggle.com/allen-institute-for-ai/CORD-19-research-challenge) and use it to guide feature selection. Overall, incorporating the NLP component without filtering did not improve the results locally, however after filtering we were able to consistetly finish in the top 10 submissions based on AUPR and AUROC (ranking as-of the 11-11-2020 dataset, leaderboard linked [here](https://www.synapse.org/#!Synapse:syn21849255/wiki/605131)).
 
 ## Project Overview
 Without a doubt, COVID-19 has dramatically affected all of our lives and it is important we seek to understand and support each other during these challenging times. Our team was motivated by the open-source efforts to better understand COVID-19 and the potential of accurate hospitalization predictions to improve medical scheduling and triage for scarse resources. This repository contains our project submission and analysis.
@@ -12,7 +12,7 @@ This project has two key components:
 1. Generating a ML model using traditional statistical analysis on the DREAM challenge dataset
 2. Performing an NLP analysis on the separate CORD-19 dataset and using that to guide feature selection
 
-In this analysis, features are represented by concept_ids as defined by the OMOP data model from OHDSI. An index of all concept_ids can be found using the OHDSI ATHENA tool [linked here](https://athena.ohdsi.org/).
+In this analysis, features are represented by concept_ids as defined by the OMOP data model from OHDSI. An index of all concept_ids can be found using the OHDSI ATHENA tool linked [here](https://athena.ohdsi.org/).
 
 ### Data (from CORD-19 Dataset)
 
@@ -26,9 +26,9 @@ In this analysis, features are represented by concept_ids as defined by the OMOP
 
 ## Description of the model
 
-There are two variants we explored during this project: a model trained using all possible concept_ids as features (in src/use_all_concepts), and a model trained using the counts of user-specified concept_ids as features (in src/use_compressed_concepts). For our final submission we used the "compressed" version was easier to deploy already performed significantly well.
+There are two variants we explored during this project: a model trained using all possible concept_ids as features (in `src/use_all_concepts`), and a model trained using the counts of user-specified concept_ids as features (in `src/use_compressed_concepts`). For our final submission we used the "compressed" version was easier to deploy already performed significantly well.
 
-For each model, we first generate a feature set for each patient in the `/data` folder using PCA on the counts specified concept_ids, and then we apply a 10-fold cross-validation model of choice [Logistic Regression, Support Vector Machine, Random Forest] on the feature set. Once the model is trained, we save the model file in the `/model`folder. During the inference stage, we create a feature matrix using the same set of demographics features. Then we load the trained model and apply the model on the feature matrix to generate a prediction file as `/output/predictions.csv`
+For each model, we first generate a feature set for each patient in the `/data` folder using PCA on the counts of specified concept_ids, and then we apply a 10-fold cross-validation model of choice [Logistic Regression, Support Vector Machine, Random Forest] on the feature set. Once the model is trained, we save the model file in the `/model`folder. During the inference stage, we create a feature matrix using the same set of demographics features. Then we load the trained model and apply the model on the feature matrix to generate a prediction file as `/output/predictions.csv`
 
 ## Run the model locally on synthetic EHR data
 
