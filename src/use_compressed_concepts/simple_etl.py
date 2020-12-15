@@ -70,9 +70,19 @@ def get_id_list(n_features=300):
     idSet = set(ids)
     return idSet
 
-def get_features_from_list():
-    idSet = get_id_list()
-    
+def get_id_from_train():
+    f = open(MODEL_PATH + '/predictor_ids.txt')
+    line = [line for line in f]
+    ids = [int(i) for i in line[0].strip().split(',')]
+    return set(ids)
+
+def get_features_from_list(testing=False):
+    idSet = {}
+    if testing:
+        idSet = get_id_from_train()
+    else:
+        idSet = get_id_list()
+        
     # condition
     condition = pd.read_csv(TRAIN_PATH+"condition_occurrence.csv",usecols =['person_id','condition_concept_id'])
     condition = condition[condition['condition_concept_id'].isin(idSet)]
